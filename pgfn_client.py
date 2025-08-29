@@ -80,7 +80,7 @@ class PGFNClient:
         unlocker_url = "https://api.brightdata.com/request"
         payload = {
             "zone": "web_unlocker1",
-            "url": "PGFN_BASE",
+            "url": "https://www.listadevedores.pgfn.gov.br",
             "format": "raw",
             "solve_captcha": True,
             "brd_mobile": "desktop",
