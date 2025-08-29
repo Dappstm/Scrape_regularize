@@ -13,6 +13,7 @@ DEFAULT_OUT_DIR = Path("./out")
 DEFAULT_DB_PATH = Path("./data.sqlite")
 DEFAULT_DOWNLOAD_DIR = Path("./darfs")
 DEFAULT_USER_DATA = Path("./user_data")  # Playwright persistent profile
+STORAGE_PATH = Path("./playwright_state.json")
 
 # Select browser
 BROWSER = "chromium"  # choose from: chromium, firefox, webkit
