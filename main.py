@@ -25,7 +25,7 @@ def _init_context(headless: bool, user_data: Path) -> BrowserContext:
         logging.info("[CTX] Launching persistent Playwright context")
         _browser_ctx = browser_type.launch_persistent_context(
             user_data_dir=str(user_data),
-            headless=headless,
+            headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
