@@ -3,3 +3,4 @@ pandas==2.2.2
 sqlalchemy==2.0.30
 sqlite-utils==3.36
 pydantic==2.8.2
+aiohttp
