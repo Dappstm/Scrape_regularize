@@ -1,6 +1,6 @@
 # pgfn_client.py
 from __future__ import annotations
-import json, time, logging
+import json, logging
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from playwright.sync_api import BrowserContext, Page
@@ -56,13 +56,14 @@ class PGFNClient:
                     try:
                         data = resp.json()
                         self._captured_json.append({"url": url, "json": data})
-                        logger.debug("Captured JSON XHR: %s", url)
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+                        logger.info("[XHR] Captured JSON from %s (keys=%s)", url, list(data.keys()) if isinstance(data, dict) else type(data))
+                    except Exception as e:
+                        logger.warning("[XHR] Failed to parse JSON from %s: %s", url, e)
+            except Exception as e:
+                logger.debug("[XHR] Response hook error: %s", e)
 
         self.page.on("response", on_response)
+        logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
 
     def search_company(self, name_query: str) -> List[DebtorRow]:
@@ -70,45 +71,42 @@ class PGFNClient:
         assert self.page is not None
         p = self.page
 
-        # Try multiple selectors for the input
-        sel_candidates = [
-            "input[placeholder*='Nome']",
-            "input[formcontrolname='nome']",
-            "input[type='text']",
-        ]
-        for sel in sel_candidates:
-            try:
-                if p.locator(sel).count() > 0:
-                    p.fill(sel, name_query)
-                    break
-            except Exception:
-                continue
+        # Wait for input field to be visible and fill it
+        try:
+            p.wait_for_selector("input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", timeout=5000)
+        except Exception:
+            logger.warning("[SEARCH] Could not find name input field!")
         else:
-            # fallback: type directly
-            p.keyboard.type(name_query)
+            p.fill("input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", name_query)
+            logger.info("[SEARCH] Filled search with: %s", name_query)
 
-        # Click "Consultar"
-        for b in ["button:has-text('Consultar')", "text=Consultar", "button[type='submit']"]:
-            try:
-                if p.locator(b).count() > 0:
-                    p.click(b)
-                    break
-            except Exception:
-                continue
-        else:
+        # Click Consultar
+        try:
+            p.click("button:has-text('Consultar'), text=Consultar, button[type='submit']")
+            logger.info("[SEARCH] Clicked Consultar button")
+        except Exception:
+            logger.warning("[SEARCH] Failed to click Consultar — falling back to Enter key")
             p.keyboard.press("Enter")
 
-        # wait for XHRs
-        p.wait_for_timeout(2000)
+        # Wait for network activity
+        p.wait_for_timeout(4000)
 
-        # Parse recent captured JSONs
+        # Debug: log captured JSONs
+        if not self._captured_json:
+            logger.warning("[SEARCH] No JSON captured yet — maybe endpoint differs?")
+        else:
+            logger.info("[SEARCH] Captured %d JSON responses", len(self._captured_json))
+            for item in self._captured_json[-5:]:
+                logger.debug("[SEARCH] Captured JSON from: %s", item["url"])
+
+        # Parse recent captured JSONs for debtor rows
         debtors: List[DebtorRow] = []
         for item in reversed(self._captured_json[-20:]):
             data = item.get("json")
             if not data:
                 continue
             text = json.dumps(data, ensure_ascii=False).lower()
-            if "devedor" in text or ("cnpj" in text and "inscricao" not in text):
+            if ("devedor" in text) or ("cnpj" in text and "inscricao" not in text):
                 rows: List[dict] = []
                 if isinstance(data, dict):
                     for v in data.values():
@@ -124,12 +122,15 @@ class PGFNClient:
                     total = _to_float_safe(r.get("total") or r.get("valorTotal") or r.get("montante"))
                     debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
 
-        # dedupe
-        seen, unique = set(), []
+        # Deduplicate
+        seen = set()
+        unique = []
         for d in debtors:
             if d.cnpj not in seen:
                 unique.append(d)
                 seen.add(d.cnpj)
+
+        logger.info("[SEARCH] Found %d debtor rows for query '%s'", len(unique), name_query)
         return unique
 
     def open_details_and_collect_inscriptions(self, max_entries: Optional[int] = None) -> List[InscriptionRow]:
@@ -140,12 +141,14 @@ class PGFNClient:
 
         detail_locators = p.locator("text=Detalhar")
         count = detail_locators.count()
+        logger.info("[DETAIL] Found %d 'Detalhar' buttons", count)
         limit = count if max_entries is None else min(count, max_entries)
 
         for i in range(limit):
             try:
                 detail_locators.nth(i).click()
-                p.wait_for_timeout(1200)
+                logger.info("[DETAIL] Clicked Detalhar #%d", i)
+                p.wait_for_timeout(1500)
 
                 for item in reversed(self._captured_json[-30:]):
                     data = item.get("json")
@@ -170,8 +173,10 @@ class PGFNClient:
                                 category=r.get("categoria") or r.get("natureza"),
                                 amount=_to_float_safe(r.get("valor") or r.get("montante") or r.get("total")),
                             ))
-            except Exception:
-                continue
+                            logger.debug("[DETAIL] Captured inscription: %s", r)
+            except Exception as e:
+                logger.warning("[DETAIL] Failed to click Detalhar #%d: %s", i, e)
 
         uniq = {(r.cnpj, r.inscription_number): r for r in results}
+        logger.info("[DETAIL] Collected %d unique inscriptions", len(uniq))
         return list(uniq.values())
