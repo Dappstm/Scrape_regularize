@@ -7,8 +7,7 @@ from config import (
     DEFAULT_OUT_DIR,
     DEFAULT_DB_PATH,
     DEFAULT_DOWNLOAD_DIR,
-    BROWSER,
-    DEFAULT_HEADERS,
+    BROWSER
 )
 from pgfn_client import PGFNClient
 from regularize_client import RegularizeClient
