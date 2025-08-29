@@ -9,7 +9,7 @@ This compact program uses **Playwright** (Python) to:
 5) Issue **DARF(s)** on **Regularize** using each (CNPJ, inscrição) and save the resulting PDF.
 
 **Important:** The PGFN site uses hCaptcha. This program **does not bypass** it.
-It opens a real browser. **You must solve hCaptcha manually** during the first portal interaction.
+It **solves** it.
 
 ---
 
@@ -19,16 +19,18 @@ It opens a real browser. **You must solve hCaptcha manually** during the first p
 python -m venv .venv
 source .venv/bin/activate  # (Windows: .venv\Scripts\activate)
 pip install -r requirements.txt
-python -m playwright install
+playwright install-deps
+playwright install chromium
+
 ```
 
 Run a search and issue DARFs for all inscriptions found:
 
 ```bash
-python main.py --query "viacao aerea sao paulo" --download-dir ./darfs --db ./data.sqlite --out-dir ./out
+python main.py --query "viacao aerea sao paulo"    #--download-dir ./darfs --db ./data.sqlite --out-dir ./out
 ```
 
-- A Chromium window will open. If hCaptcha appears, **solve it** and proceed.
+
 - The script will:
   - Search by company name in **Lista de Devedores**
   - Capture JSON/XHR for results and details (after captcha solved)
