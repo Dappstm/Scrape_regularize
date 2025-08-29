@@ -4,8 +4,8 @@ import argparse, re, logging, asyncio
 from pathlib import Path
 from playwright.async_api import async_playwright, BrowserContext
 from config import DEFAULT_OUT_DIR, DEFAULT_DB_PATH, DEFAULT_DOWNLOAD_DIR, BROWSER
-from pgfn_client_async import PGFNClient
-from regularize_client_async import RegularizeClient
+from pgfn_client import PGFNClient
+from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
 
 # BrightData credentials (move to environment in production)
