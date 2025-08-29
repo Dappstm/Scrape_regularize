@@ -1,5 +1,4 @@
-# pgfn_client_async.py (patched)
-
+# pgfn_client.py
 from __future__ import annotations
 import json, logging
 from typing import List, Dict, Any, Optional
@@ -27,17 +26,19 @@ class InscriptionRow:
 
 
 def _matches_json_hint(url: str) -> bool:
+    """Check whether the URL matches PGFN JSON endpoints of interest."""
     return any(h in url for h in PGFN_JSON_HINTS)
 
 
 def _to_float_safe(val) -> Optional[float]:
+    """Convert Brazilian-formatted numeric strings safely to float."""
     if val is None:
         return None
     try:
         if isinstance(val, (int, float)):
             return float(val)
         s = str(val).strip()
-        s = s.replace('.', '').replace(',', '.')
+        s = s.replace(".", "").replace(",", ".")
         return float(s)
     except Exception:
         return None
@@ -63,10 +64,14 @@ class PGFNClient:
                     try:
                         data = await resp.json()
                         self._captured_json.append({"url": url, "json": data})
+
                         if not self._passed_hcaptcha:
                             self._passed_hcaptcha = True
-                            logger.info("✅ BrightData handled hCaptcha — PGFN JSON API is accessible.")
-                        logger.info("[XHR] Captured JSON from %s (keys=%s)", url, list(data.keys()) if isinstance(data, dict) else type(data))
+                            logger.info("✅ Captcha bypass confirmed — PGFN JSON API reachable.")
+
+                        logger.info("[XHR] Captured JSON from %s (keys=%s)",
+                                    url,
+                                    list(data.keys()) if isinstance(data, dict) else type(data))
                     except Exception as e:
                         logger.warning("[XHR] Failed to parse JSON from %s: %s", url, e)
             except Exception as e:
@@ -76,42 +81,37 @@ class PGFNClient:
         logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
 
-        # Check if still stuck at challenge
+        # Basic captcha check
         content = await self.page.content()
-        if "captcha" in content.lower() or "hcaptcha" in content.lower():
-            logger.error("❌ Still seeing a captcha challenge — BrightData session may not be configured correctly.")
+        if "captcha" in content.lower():
+            logger.error("❌ Captcha still visible — BrightData session may not be configured.")
         else:
-            logger.info("✅ Base page loaded without visible captcha.")
+            logger.info("✅ Base page loaded successfully.")
 
     async def search_company(self, name_query: str) -> List[DebtorRow]:
         """Perform a company search by name and capture debtor rows from JSON responses."""
         assert self.page is not None
         p = self.page
 
+        # Fill the company search field
         try:
             await p.wait_for_selector("input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", timeout=5000)
-        except Exception:
-            logger.warning("[SEARCH] Could not find name input field!")
-        else:
             await p.fill("input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", name_query)
-            logger.info("[SEARCH] Filled search with: %s", name_query)
+            logger.info("[SEARCH] Filled query: %s", name_query)
+        except Exception:
+            logger.warning("[SEARCH] Could not find or fill name input field!")
 
+        # Trigger search
         try:
             await p.click("button:has-text('Consultar'), text=Consultar, button[type='submit']")
             logger.info("[SEARCH] Clicked Consultar button")
         except Exception:
-            logger.warning("[SEARCH] Failed to click Consultar — falling back to Enter key")
+            logger.warning("[SEARCH] Failed to click Consultar — pressing Enter instead")
             await p.keyboard.press("Enter")
 
         await p.wait_for_timeout(4000)
 
-        if not self._captured_json:
-            logger.warning("[SEARCH] No JSON captured yet — maybe endpoint differs or captcha blocked request?")
-        else:
-            logger.info("[SEARCH] Captured %d JSON responses", len(self._captured_json))
-            for item in self._captured_json[-5:]:
-                logger.debug("[SEARCH] Captured JSON from: %s", item["url"])
-
+        # Parse captured JSON
         debtors: List[DebtorRow] = []
         for item in reversed(self._captured_json[-20:]):
             data = item.get("json")
@@ -134,15 +134,16 @@ class PGFNClient:
                     total = _to_float_safe(r.get("total") or r.get("valorTotal") or r.get("montante"))
                     debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
 
-        seen = set()
+        # Deduplicate by CNPJ
         unique = []
+        seen = set()
         for d in debtors:
             if d.cnpj not in seen:
                 unique.append(d)
                 seen.add(d.cnpj)
 
         if unique:
-            logger.info("✅ Successfully parsed %d debtor rows for query '%s'", len(unique), name_query)
+            logger.info("✅ Parsed %d debtor rows for query '%s'", len(unique), name_query)
         else:
             logger.warning("⚠️ No debtor rows parsed for '%s'", name_query)
 
@@ -183,13 +184,15 @@ class PGFNClient:
                                     yield from walk_sync(x)
 
                         for r in walk_sync(data):
-                            results.append(InscriptionRow(
-                                cnpj=str(r.get("cnpj") or "").strip(),
-                                company_name=str(r.get("nome") or r.get("razaoSocial") or "").strip(),
-                                inscription_number=str(r.get("inscricao") or r.get("numero") or "").strip(),
-                                category=r.get("categoria") or r.get("natureza"),
-                                amount=_to_float_safe(r.get("valor") or r.get("montante") or r.get("total")),
-                            ))
+                            results.append(
+                                InscriptionRow(
+                                    cnpj=str(r.get("cnpj") or "").strip(),
+                                    company_name=str(r.get("nome") or r.get("razaoSocial") or "").strip(),
+                                    inscription_number=str(r.get("inscricao") or r.get("numero") or "").strip(),
+                                    category=r.get("categoria") or r.get("natureza"),
+                                    amount=_to_float_safe(r.get("valor") or r.get("montante") or r.get("total")),
+                                )
+                            )
                             logger.debug("[DETAIL] Captured inscription: %s", r)
             except Exception as e:
                 logger.warning("[DETAIL] Failed to click Detalhar #%d: %s", i, e)
