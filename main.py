@@ -25,7 +25,7 @@ def run(query: str, out_dir: Path, db_path: Path, download_dir: Path, user_data:
 
         ctx = browser_type.launch_persistent_context(
             user_data_dir=str(user_data),
-            headless=headless,
+            headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
