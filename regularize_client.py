@@ -1,9 +1,9 @@
-# regularize_client.py
+# regularize_client.py (async patched)
 from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Optional
-from playwright.sync_api import BrowserContext, Page
+from playwright.async_api import BrowserContext, Page
 from config import REGULARIZE_DOC, WAIT_LONG
 
 logger = logging.getLogger("RegularizeClient")
@@ -16,35 +16,35 @@ class RegularizeClient:
         self.download_dir.mkdir(parents=True, exist_ok=True)
         self._last_pdf_bytes: Optional[bytes] = None
 
-    def open(self):
+    async def open(self):
         """Open Regularize page and listen for PDF responses."""
-        self.page = self.context.new_page()
+        self.page = await self.context.new_page()
         self.page.set_default_timeout(WAIT_LONG)
 
-        def on_response(resp):
+        async def on_response(resp):
             try:
                 if "application/pdf" in (resp.headers.get("content-type") or "").lower():
                     logger.debug("Captured PDF response: %s", resp.url)
                     try:
-                        self._last_pdf_bytes = resp.body()
+                        self._last_pdf_bytes = await resp.body()
                     except Exception:
                         self._last_pdf_bytes = None
             except Exception:
                 pass
 
         self.page.on("response", on_response)
-        self.page.goto(REGULARIZE_DOC, wait_until="domcontentloaded")
+        await self.page.goto(REGULARIZE_DOC, wait_until="domcontentloaded")
 
-    def emitir_darf_integral(self, cnpj_digits_only: str, inscricao: str) -> Path:
-        """Fill form and download DARF PDF."""
+    async def emitir_darf_integral(self, cnpj_digits_only: str, inscricao: str) -> Path:
+        """Fill form and download DARF PDF asynchronously."""
         assert self.page is not None
         p = self.page
 
         # Fill CPF/CNPJ
         for sel in ["input[name='cpfCnpj']", "input[id*='cpf']", "input[type='text']"]:
             try:
-                if p.locator(sel).count() > 0:
-                    p.fill(sel, cnpj_digits_only)
+                if await p.locator(sel).count() > 0:
+                    await p.fill(sel, cnpj_digits_only)
                     break
             except Exception:
                 continue
@@ -53,10 +53,10 @@ class RegularizeClient:
         for sel in ["input[name='inscricao']", "input[id*='inscr']", "input[type='text']"]:
             try:
                 loc = p.locator(sel)
-                if loc.count() > 1:
-                    loc.nth(1).fill(inscricao)
+                if await loc.count() > 1:
+                    await loc.nth(1).fill(inscricao)
                 else:
-                    loc.fill(inscricao)
+                    await loc.fill(inscricao)
                 break
             except Exception:
                 continue
@@ -64,19 +64,19 @@ class RegularizeClient:
         # Consultar
         for btn in ["button:has-text('Consultar')", "text=Consultar", "button[type='submit']"]:
             try:
-                if p.locator(btn).count() > 0:
-                    p.click(btn)
+                if await p.locator(btn).count() > 0:
+                    await p.click(btn)
                     break
             except Exception:
                 continue
 
-        p.wait_for_timeout(1200)
+        await p.wait_for_timeout(1200)
 
         # Emitir DARF
         for btn in ["button:has-text('Emitir DARF integral')", "text=Emitir DARF integral"]:
             try:
-                if p.locator(btn).count() > 0:
-                    p.click(btn)
+                if await p.locator(btn).count() > 0:
+                    await p.click(btn)
                     break
             except Exception:
                 continue
@@ -86,13 +86,13 @@ class RegularizeClient:
         try:
             for btn in ["button:has-text('Imprimir')", "text=Imprimir"]:
                 try:
-                    if p.locator(btn).count() > 0:
-                        with p.expect_download(timeout=WAIT_LONG) as dl_info:
-                            p.click(btn)
-                        download = dl_info.value
+                    if await p.locator(btn).count() > 0:
+                        async with p.expect_download(timeout=WAIT_LONG) as dl_info:
+                            await p.click(btn)
+                        download = await dl_info.value
                         fname = f"DARF_{cnpj_digits_only}_{inscricao.replace(' ', '_').replace('/', '-')}.pdf"
                         target = self.download_dir / fname
-                        download.save_as(str(target))
+                        await download.save_as(str(target))
                         pdf_path = target
                         logger.info("Downloaded DARF via expect_download: %s", target)
                         break
