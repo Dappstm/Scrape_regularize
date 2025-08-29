@@ -83,7 +83,6 @@ class PGFNClient:
             "url": "https://www.listadevedores.pgfn.gov.br",
             "format": "raw",
             "method": "GET",
-            "brd_mobile": "desktop",
             "direct": True
         }
         if body is not None:
