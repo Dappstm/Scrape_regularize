@@ -82,9 +82,8 @@ class PGFNClient:
             "zone": "web_unlocker1",
             "url": "https://www.listadevedores.pgfn.gov.br",
             "format": "raw",
-            "solve_captcha": True,
-            "brd_mobile": "desktop",
             "method": "GET",
+            "brd_mobile": "desktop",
             "direct": True
         }
         if body is not None:
