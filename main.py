@@ -1,26 +1,22 @@
 # main.py
 from __future__ import annotations
-import argparse, re, logging, asyncio, os, sys, traceback
+import argparse, re, logging, asyncio, os, sys
 from pathlib import Path
 from typing import Optional
 from playwright.async_api import async_playwright, BrowserContext, Page
-from twocaptcha import TwoCaptcha  # ✅ official client
+from twocaptcha import TwoCaptcha
 from config import DEFAULT_OUT_DIR, DEFAULT_DB_PATH, DEFAULT_DOWNLOAD_DIR, PGFN_BASE
 from pgfn_client import PGFNClient
 from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
-import os
 
-
-# Read env var
-API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
 
 def only_digits(s: str) -> str:
     return re.sub(r"\D+", "", s)
 
 
 async def _launch_playwright() -> BrowserContext:
-    logging.info("[CTX] Launching Playwright Chromium (no proxy)...")
+    logging.info("[CTX] Launching Playwright Chromium...")
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(
         headless=True,
@@ -43,7 +39,6 @@ async def _launch_playwright() -> BrowserContext:
 
 
 async def _detect_hcaptcha_sitekey(page: Page) -> Optional[str]:
-    # Try [data-sitekey]
     sitekey = await page.evaluate(
         """() => {
             const el = document.querySelector('[data-sitekey]');
@@ -53,7 +48,6 @@ async def _detect_hcaptcha_sitekey(page: Page) -> Optional[str]:
     if sitekey:
         return sitekey
 
-    # Try iframe URL
     for fr in page.frames:
         try:
             url = fr.url or ""
@@ -73,15 +67,15 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
     """Solve hCaptcha with 2Captcha and inject into Playwright page. Retries on failure."""
     content = (await page.content()).lower()
     if "hcaptcha" not in content and "captcha" not in content:
-        logging.info("[HCAPTCHA] No captcha detected on page — skipping solver.")
+        logging.info("[HCAPTCHA] No captcha detected on %s — skipping solver.", page.url)
         return True
 
     sitekey = await _detect_hcaptcha_sitekey(page)
     if not sitekey:
-        logging.warning("[HCAPTCHA] Could not detect hCaptcha sitekey.")
+        logging.warning("[HCAPTCHA] Could not detect hCaptcha sitekey at %s", page.url)
         return False
 
-    solver = TwoCaptcha(API_KEY)
+    solver = TwoCaptcha(api_key)
 
     attempt = 0
     while attempt <= retries:
@@ -119,6 +113,7 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                 token,
             )
             await page.wait_for_timeout(1500)
+            logging.info("[HCAPTCHA] Token injected successfully.")
             return True
 
         except Exception as e:
@@ -129,28 +124,25 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
 
 
 async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[str]):
+    ctx: BrowserContext = None
     try:
         out_dir.mkdir(exist_ok=True, parents=True)
         db_engine = init_db(db_path)
-
         ctx = await _launch_playwright()
-
-        # Solve captcha once at PGFN entry
-        if two_captcha_key:
-            page = await ctx.new_page()
-            await page.goto(PGFN_BASE, wait_until="domcontentloaded")
-            ok = await _solve_hcaptcha_with_2captcha(page, two_captcha_key, retries=2)
-            if ok:
-                logging.info("✅ hCaptcha solved for session (2Captcha).")
-            else:
-                logging.warning("⚠️ Failed to solve hCaptcha after retries, flow may break.")
-            await page.close()
-        else:
-            logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
 
         # --- PGFN flow ---
         pgfn = PGFNClient(ctx)
-        await pgfn.open()
+        await pgfn.open()  # creates pgfn.page at PGFN_BASE
+
+        if two_captcha_key:
+            solved = await _solve_hcaptcha_with_2captcha(pgfn.page, two_captcha_key, retries=2)
+            if solved:
+                logging.info("✅ hCaptcha solved for PGFN session.")
+            else:
+                logging.warning("⚠️ Failed to solve hCaptcha, continuing anyway (may fail).")
+        else:
+            logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
+
         debtors = await pgfn.search_company(query)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
         inscriptions = await pgfn.open_details_and_collect_inscriptions()
@@ -182,18 +174,19 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
         logging.critical("[FATAL] Unhandled error in run(): %s", main_err, exc_info=True)
         sys.exit(1)
     finally:
-        try:
-            await ctx.close()
-        except Exception:
-            pass
-        try:
-            await ctx._browser.close()  # type: ignore[attr-defined]
-        except Exception:
-            pass
-        try:
-            await ctx._pw.stop()  # type: ignore[attr-defined]
-        except Exception:
-            pass
+        if ctx:
+            try:
+                await ctx.close()
+            except Exception:
+                pass
+            try:
+                await ctx._browser.close()  # type: ignore[attr-defined]
+            except Exception:
+                pass
+            try:
+                await ctx._pw.stop()  # type: ignore[attr-defined]
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
@@ -211,7 +204,7 @@ if __name__ == "__main__":
     parser.add_argument("--db", default=str(DEFAULT_DB_PATH))
     parser.add_argument("--download-dir", default=str(DEFAULT_DOWNLOAD_DIR))
     parser.add_argument("--captcha-key", default=os.getenv("TWO_CAPTCHA_KEY"),
-                        help="2Captcha API key (or set TWO_CAPTCHA_KEY env var)")
+                        help="2Captcha API key (or set TWO_CAPTCHA_KEY env var in Railway)")
     args = parser.parse_args()
 
     asyncio.run(run(
