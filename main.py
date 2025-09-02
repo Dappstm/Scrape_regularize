@@ -9,8 +9,9 @@ from config import DEFAULT_OUT_DIR, DEFAULT_DB_PATH, DEFAULT_DOWNLOAD_DIR, PGFN_
 from pgfn_client import PGFNClient
 from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
+import os
 
-api_key = "fa1fc5bae63538830211919b4878aec6"
+api_key = os.getenv("TWOCAPTCHA_API_KEY")
 
 def only_digits(s: str) -> str:
     return re.sub(r"\D+", "", s)
