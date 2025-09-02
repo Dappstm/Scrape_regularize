@@ -1,7 +1,7 @@
 # pgfn_client.py
 from __future__ import annotations
 import json, logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
 from playwright.async_api import BrowserContext, Page
 from config import PGFN_BASE, PGFN_JSON_HINTS, WAIT_LONG
@@ -155,29 +155,36 @@ class PGFNClient:
         # Use the latest devedores/ response
         latest = devedores_payloads[-1]
         data = latest.get("json") or {}
-        logger.debug("[SEARCH] Raw devedores JSON keys: %s", list(data.keys()))
+        logger.debug("[SEARCH] Raw devedores JSON type: %s", type(data))
 
         debtors: List[DebtorRow] = []
 
+        # Case 1: {"pagina": 1, "devedores": [...]}
         if isinstance(data, dict) and "devedores" in data:
-            for r in data["devedores"]:
-                cnpj = str(r.get("id") or "").strip()
-                if not cnpj:
-                    continue
+            records = data["devedores"]
+        # Case 2: plain list
+        elif isinstance(data, list):
+            records = data
+        else:
+            records = []
 
-                name = str(r.get("nome") or "").strip()
-                fantasy = str(r.get("nomefantasia") or "").strip()
-                total = _to_float_safe(r.get("totaldivida"))
+        for r in records:
+            cnpj = str(r.get("id") or "").strip()
+            if not cnpj:
+                continue
+            name = str(r.get("nome") or "").strip()
+            fantasy = str(r.get("nomefantasia") or "").strip()
+            total = _to_float_safe(r.get("totaldivida"))
 
-                debtors.append(
-                    DebtorRow(
-                        cnpj=cnpj,
-                        company_name=name,
-                        fantasy_name=fantasy,
-                        total=total,
-                    )
+            debtors.append(
+                DebtorRow(
+                    cnpj=cnpj,
+                    company_name=name,
+                    fantasy_name=fantasy,
+                    total=total,
                 )
-                logger.debug("[SEARCH] Parsed debtor row: %s", debtors[-1])
+            )
+            logger.debug("[SEARCH] Parsed debtor row: %s", debtors[-1])
 
         # Deduplicate
         seen = set()
@@ -191,20 +198,23 @@ class PGFNClient:
         return unique
 
     async def collect_inscriptions_from_devedores(
-        self, devedores_payload: dict
+        self, devedores_payload: Union[Dict[str, Any], List[Dict[str, Any]]]
     ) -> List[InscriptionRow]:
         """Extract inscription rows directly from devedores JSON (no EXPORTAR click needed)."""
         results: List[InscriptionRow] = []
 
-        if not isinstance(devedores_payload, dict):
-            logger.warning("[DETAIL] Expected dict for devedores payload, got %s", type(devedores_payload))
+        if isinstance(devedores_payload, dict):
+            records = devedores_payload.get("devedores", [])
+        elif isinstance(devedores_payload, list):
+            records = devedores_payload
+        else:
+            logger.warning("[DETAIL] Unexpected devedores payload type: %s", type(devedores_payload))
             return results
 
-        for r in devedores_payload.get("devedores", []):
+        for r in records:
             cnpj = str(r.get("id") or "").strip()
             if not cnpj:
                 continue
-
             row = InscriptionRow(
                 cnpj=cnpj,
                 company_name=str(r.get("nome") or "").strip(),
