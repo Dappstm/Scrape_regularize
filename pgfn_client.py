@@ -1,4 +1,4 @@
-# pgfn_client_async.py (refactored: open() no longer does captcha detection/solving)
+# pgfn_client.py
 from __future__ import annotations
 import json, logging
 from typing import List, Dict, Any, Optional
@@ -13,6 +13,7 @@ logger = logging.getLogger("PGFNClient")
 class DebtorRow:
     cnpj: str
     company_name: str
+    fantasy_name: Optional[str] = None
     total: Optional[float] = None
 
 
@@ -20,9 +21,9 @@ class DebtorRow:
 class InscriptionRow:
     cnpj: str
     company_name: str
-    inscription_number: str
-    category: Optional[str]
-    amount: Optional[float]
+    amount: Optional[float] = None
+    section: Optional[str] = None
+    category: Optional[str] = None
 
 
 def _matches_json_hint(url: str) -> bool:
@@ -111,13 +112,12 @@ class PGFNClient:
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
 
-    # search_company() and open_details_and_collect_inscriptions() remain unchanged
-
     async def search_company(self, name_query: str) -> List[DebtorRow]:
-        """Perform a company search by name and capture debtor rows from JSON responses."""
+        """Perform a company search by name and capture debtor rows from devedores/ JSON."""
         assert self.page is not None
         p = self.page
 
+        # Fill search field
         try:
             await p.wait_for_selector(
                 "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']", 
@@ -132,73 +132,54 @@ class PGFNClient:
             )
             logger.info("[SEARCH] Filled search with: %s", name_query)
 
+        # Click "CONSULTAR"
         await self._bulletproof_click(
             "button:has-text('CONSULTAR'), text=CONSULTAR, button[type='submit']",
             "CONSULTAR",
             allow_enter=True,
         )
 
-        await p.wait_for_timeout(4000)
+        # Wait a bit for the XHR to fire
+        await p.wait_for_timeout(5000)
 
-        if not self._captured_json:
-            logger.warning("[SEARCH] No JSON captured yet — maybe endpoint differs or captcha blocked request?")
-        else:
-            logger.info("[SEARCH] Captured %d JSON responses", len(self._captured_json))
-            for item in self._captured_json[-5:]:
-                logger.debug("[SEARCH] Captured JSON from: %s", item["url"])
+        # Filter captured JSON for devedores/
+        devedores_payloads = [
+            item for item in self._captured_json 
+            if "devedores" in item.get("url", "")
+        ]
+
+        if not devedores_payloads:
+            logger.warning("[SEARCH] No devedores/ JSON found after query '%s'", name_query)
+            return []
+
+        # Use the latest devedores/ response
+        latest = devedores_payloads[-1]
+        data = latest.get("json") or {}
+        logger.debug("[SEARCH] Raw devedores JSON keys: %s", list(data.keys()))
 
         debtors: List[DebtorRow] = []
 
-        logger.debug("[SEARCH] Inspecting last %d JSON responses", min(20, len(self._captured_json)))
-        for idx, item in enumerate(reversed(self._captured_json[-20:])):
-            data = item.get("json")
-            url = item.get("url")
-            if not data:
-                logger.debug("[SEARCH][%d] Skipping empty JSON from %s", idx, url)
-                continue
+        if isinstance(data, dict) and "devedores" in data:
+            for r in data["devedores"]:
+                cnpj = str(r.get("id") or "").strip()
+                if not cnpj:
+                    continue
 
-            # Log structure of JSON
-            if isinstance(data, dict):
-                logger.debug("[SEARCH][%d] JSON dict keys from %s: %s", idx, url, list(data.keys()))
-            elif isinstance(data, list):
-                logger.debug("[SEARCH][%d] JSON list length %d from %s", idx, len(data), url)
-            else:
-                logger.debug("[SEARCH][%d] Unexpected JSON type %s from %s", idx, type(data), url)
-                continue
+                name = str(r.get("nome") or "").strip()
+                fantasy = str(r.get("nomefantasia") or "").strip()
+                total = _to_float_safe(r.get("totaldivida"))
 
-            text = json.dumps(data, ensure_ascii=False).lower()
-            if ("devedores" in text) or ("nome" in text and "totaldivida" in text):
-                logger.debug("[SEARCH][%d] Candidate JSON contains debtor-like fields", idx)
-                rows: List[dict] = []
-
-                if isinstance(data, dict):
-                    for k, v in data.items():
-                        if isinstance(v, list):
-                            logger.debug("[SEARCH][%d] Found list under key '%s' with %d rows", idx, k, len(v))
-                            rows.extend(v)
-                elif isinstance(data, list):
-                    logger.debug("[SEARCH][%d] Treating JSON as list with %d rows", idx, len(data))
-                    rows = data
-
-                for r_idx, r in enumerate(rows):
-                    cnpj = str(r.get("id") or r.get("CNPJ") or "").strip()
-                    if not cnpj:
-                        logger.debug("[SEARCH][%d][row %d] Skipping row with no CNPJ: %s", idx, r_idx, r)
-                        continue
-
-                    name = str(r.get("nome") or "").strip()
-                    total = _to_float_safe(r.get("totaldivida"))
-
-                    logger.debug(
-                        "[SEARCH][%d][row %d] Parsed debtor row: cnpj=%s, name='%s', total=%s",
-                        idx, r_idx, cnpj, name, total
+                debtors.append(
+                    DebtorRow(
+                        cnpj=cnpj,
+                        company_name=name,
+                        fantasy_name=fantasy,
+                        total=total,
                     )
+                )
+                logger.debug("[SEARCH] Parsed debtor row: %s", debtors[-1])
 
-                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
-            else:
-                logger.debug("[SEARCH][%d] JSON does not match debtor pattern (keys=%s)", idx, list(data)[:10])
-
-        # Deduplicate by CNPJ
+        # Deduplicate
         seen = set()
         unique = []
         for d in debtors:
@@ -206,67 +187,31 @@ class PGFNClient:
                 unique.append(d)
                 seen.add(d.cnpj)
 
-        if unique:
-            logger.info("✅ Successfully parsed %d debtor rows for query '%s'", len(unique), name_query)
-        else:
-            logger.warning("⚠️ No debtor rows parsed for '%s'", name_query)
-            # Extra dump for investigation
-            logger.debug("[SEARCH] Last JSON payload (truncated): %s", json.dumps(self._captured_json[-1].get("json"), ensure_ascii=False)[:500])
-
+        logger.info("✅ Parsed %d debtor rows for query '%s'", len(unique), name_query)
         return unique
 
-    async def open_details_and_collect_inscriptions(
-        self, max_entries: Optional[int] = None
+    async def collect_inscriptions_from_devedores(
+        self, devedores_payload: dict
     ) -> List[InscriptionRow]:
-        """Click EXPORTAR buttons and capture inscription rows from JSON responses."""
-        assert self.page is not None
-        p = self.page
+        """Extract inscription rows directly from devedores JSON (no EXPORTAR click needed)."""
         results: List[InscriptionRow] = []
 
-        detail_locators = p.locator("text=EXPORTAR")
-        count = await detail_locators.count()
-        logger.info("[DETAIL] Found %d 'EXPORTAR' buttons", count)
-        limit = count if max_entries is None else min(count, max_entries)
+        if not isinstance(devedores_payload, dict):
+            logger.warning("[DETAIL] Expected dict for devedores payload, got %s", type(devedores_payload))
+            return results
 
-        for i in range(limit):
-            clicked = await self._bulletproof_click(
-                f"(//button[contains(., 'EXPORTAR')])[{i+1}]",
-                f"EXPORTAR #{i}",
-                allow_enter=False,
-            )
-            if not clicked:
-                logger.warning("[DETAIL] Could not click EXPORTAR #%d", i)
+        for r in devedores_payload.get("devedores", []):
+            cnpj = str(r.get("id") or "").strip()
+            if not cnpj:
                 continue
 
-            await p.wait_for_timeout(1500)
+            row = InscriptionRow(
+                cnpj=cnpj,
+                company_name=str(r.get("nome") or "").strip(),
+                amount=_to_float_safe(r.get("totaldivida")),
+            )
+            results.append(row)
+            logger.debug("[DETAIL] Parsed inscription row: %s", row)
 
-            for item in reversed(self._captured_json[-30:]):
-                data = item.get("json")
-                if not data:
-                    continue
-                payload = json.dumps(data, ensure_ascii=False).lower()
-                if "nome" in payload or ("id" in payload and "totaldivida" in payload):
-
-                    def walk_sync(obj):
-                        if isinstance(obj, dict):
-                            if any(k.lower().startswith("no") for k in obj.keys()):
-                                yield obj
-                            for v in obj.values():
-                                yield from walk_sync(v)
-                        elif isinstance(obj, list):
-                            for x in obj:
-                                yield from walk_sync(x)
-
-                    for r in walk_sync(data):
-                        results.append(
-                            InscriptionRow(
-                                cnpj=str(r.get("id") or r.get("CNJP") or "").strip(),
-                                company_name=str(r.get("nome") or "").strip(),
-                                total = _to_float_safe(r.get("totaldivida"))
-                            )
-                        )
-                        logger.debug("[DETAIL] Captured inscription: %s", r)
-
-        uniq = {(r.cnpj, r.inscription_number): r for r in results}
-        logger.info("[DETAIL] Collected %d unique inscriptions", len(uniq))
-        return list(uniq.values())
+        logger.info("[DETAIL] Collected %d inscriptions directly from devedores JSON", len(results))
+        return results
