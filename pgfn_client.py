@@ -1,4 +1,4 @@
-# pgfn_client_async.py (refactored with bulletproof click strategy for Consultar + Detalhar)
+# pgfn_client_async.py (refactored: open() no longer does captcha detection/solving)
 from __future__ import annotations
 import json, logging
 from typing import List, Dict, Any, Optional
@@ -47,7 +47,7 @@ class PGFNClient:
         self.context = context
         self.page: Optional[Page] = None
         self._captured_json: List[Dict[str, Any]] = []
-        self._passed_hcaptcha: bool = False  # now means "token injected successfully"
+        self._passed_hcaptcha: bool = False  # set in main.py once token injected
 
     async def _bulletproof_click(self, selector: str, label: str, allow_enter: bool = False) -> bool:
         """Try multiple strategies to click a button."""
@@ -96,9 +96,6 @@ class PGFNClient:
                     try:
                         data = await resp.json()
                         self._captured_json.append({"url": url, "json": data})
-                        if not self._passed_hcaptcha:
-                            self._passed_hcaptcha = True
-                            logger.info("✅ hCaptcha passed — PGFN JSON API is accessible.")
                         logger.info(
                             "[XHR] Captured JSON from %s (keys=%s)",
                             url,
@@ -112,12 +109,9 @@ class PGFNClient:
         self.page.on("response", on_response)
         logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
+        logger.info("[PGFN] Base page loaded.")
 
-        content = await self.page.content()
-        if "captcha" in content.lower() or "hcaptcha" in content.lower():
-            logger.error("❌ Still seeing a captcha challenge — 2Captcha solving may not have succeeded.")
-        else:
-            logger.info("✅ Base page loaded without visible captcha.")
+    # search_company() and open_details_and_collect_inscriptions() remain unchanged
 
     async def search_company(self, name_query: str) -> List[DebtorRow]:
         """Perform a company search by name and capture debtor rows from JSON responses."""
