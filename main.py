@@ -10,10 +10,7 @@ from pgfn_client import PGFNClient
 from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
 import os
-from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
 
 # Read env var
 API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
