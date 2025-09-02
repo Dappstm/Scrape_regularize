@@ -11,7 +11,6 @@ from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
 
 
-api_key = "fa1fc5bae63538830211919b4878aec6"
 
 def only_digits(s: str) -> str:
     return re.sub(r"\D+", "", s)
@@ -79,7 +78,7 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
         logging.warning("[HCAPTCHA] Could not detect hCaptcha sitekey.")
         return False
 
-    solver = TwoCaptcha(api_key)
+    solver = TwoCaptcha(os.getenv("TWOCAPTCHA_API_KEY"))
 
     attempt = 0
     while attempt <= retries:
