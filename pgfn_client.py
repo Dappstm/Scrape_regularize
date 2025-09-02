@@ -1,4 +1,4 @@
-# pgfn_client_async.py (patched)
+# pgfn_client_async.py (refactored for 2Captcha flow)
 from __future__ import annotations
 import json, logging
 from typing import List, Dict, Any, Optional
@@ -47,7 +47,7 @@ class PGFNClient:
         self.context = context
         self.page: Optional[Page] = None
         self._captured_json: List[Dict[str, Any]] = []
-        self._passed_hcaptcha: bool = False
+        self._passed_hcaptcha: bool = False  # now means "token injected successfully"
 
     async def open(self):
         """Open PGFN site and attach response listeners to capture JSON API calls."""
@@ -64,8 +64,12 @@ class PGFNClient:
                         self._captured_json.append({"url": url, "json": data})
                         if not self._passed_hcaptcha:
                             self._passed_hcaptcha = True
-                            logger.info("✅ BrightData handled hCaptcha — PGFN JSON API is accessible.")
-                        logger.info("[XHR] Captured JSON from %s (keys=%s)", url, list(data.keys()) if isinstance(data, dict) else type(data))
+                            logger.info("✅ hCaptcha passed — PGFN JSON API is accessible.")
+                        logger.info(
+                            "[XHR] Captured JSON from %s (keys=%s)",
+                            url,
+                            list(data.keys()) if isinstance(data, dict) else type(data),
+                        )
                     except Exception as e:
                         logger.warning("[XHR] Failed to parse JSON from %s: %s", url, e)
             except Exception as e:
@@ -75,10 +79,10 @@ class PGFNClient:
         logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
 
-        # Check if still stuck at challenge
+        # Check if captcha still visible after initial load
         content = await self.page.content()
         if "captcha" in content.lower() or "hcaptcha" in content.lower():
-            logger.error("❌ Still seeing a captcha challenge — BrightData session may not be configured correctly.")
+            logger.error("❌ Still seeing a captcha challenge — 2Captcha solving may not have succeeded.")
         else:
             logger.info("✅ Base page loaded without visible captcha.")
 
@@ -88,11 +92,17 @@ class PGFNClient:
         p = self.page
 
         try:
-            await p.wait_for_selector("input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", timeout=5000)
+            await p.wait_for_selector(
+                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", 
+                timeout=5000
+            )
         except Exception:
             logger.warning("[SEARCH] Could not find name input field!")
         else:
-            await p.fill("input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", name_query)
+            await p.fill(
+                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']",
+                name_query,
+            )
             logger.info("[SEARCH] Filled search with: %s", name_query)
 
         try:
@@ -147,7 +157,9 @@ class PGFNClient:
 
         return unique
 
-    async def open_details_and_collect_inscriptions(self, max_entries: Optional[int] = None) -> List[InscriptionRow]:
+    async def open_details_and_collect_inscriptions(
+        self, max_entries: Optional[int] = None
+    ) -> List[InscriptionRow]:
         """Click Detalhar buttons and capture inscription rows from JSON responses."""
         assert self.page is not None
         p = self.page
@@ -182,13 +194,15 @@ class PGFNClient:
                                     yield from walk_sync(x)
 
                         for r in walk_sync(data):
-                            results.append(InscriptionRow(
-                                cnpj=str(r.get("cnpj") or "").strip(),
-                                company_name=str(r.get("nome") or r.get("razaoSocial") or "").strip(),
-                                inscription_number=str(r.get("inscricao") or r.get("numero") or "").strip(),
-                                category=r.get("categoria") or r.get("natureza"),
-                                amount=_to_float_safe(r.get("valor") or r.get("montante") or r.get("total")),
-                            ))
+                            results.append(
+                                InscriptionRow(
+                                    cnpj=str(r.get("cnpj") or "").strip(),
+                                    company_name=str(r.get("nome") or r.get("razaoSocial") or "").strip(),
+                                    inscription_number=str(r.get("inscricao") or r.get("numero") or "").strip(),
+                                    category=r.get("categoria") or r.get("natureza"),
+                                    amount=_to_float_safe(r.get("valor") or r.get("montante") or r.get("total")),
+                                )
+                            )
                             logger.debug("[DETAIL] Captured inscription: %s", r)
             except Exception as e:
                 logger.warning("[DETAIL] Failed to click Detalhar #%d: %s", i, e)
