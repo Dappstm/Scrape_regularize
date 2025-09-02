@@ -40,29 +40,51 @@ async def _launch_playwright() -> BrowserContext:
     return context
 
 
-async def _detect_hcaptcha_sitekey(page: Page) -> Optional[str]:
-    sitekey = await page.evaluate(
-        """() => {
-            const el = document.querySelector('[data-sitekey]');
-            return el ? el.getAttribute('data-sitekey') : null;
-        }"""
-    )
-    if sitekey:
-        return sitekey
+async def _detect_hcaptcha_sitekey(page: Page, validate: bool = False) -> Optional[str]:
+    """
+    Returns the hCaptcha sitekey for www.listadevedores.pgfn.gov.br.
+    Optionally validates the hardcoded sitekey by checking the page.
 
-    for fr in page.frames:
-        try:
-            url = fr.url or ""
-            if "hcaptcha.com" in url:
-                from urllib.parse import urlparse, parse_qs
-                qs = parse_qs(urlparse(url).query)
-                if "sitekey" in qs and qs["sitekey"]:
-                    return qs["sitekey"][0]
-                if "k" in qs and qs["k"]:
-                    return qs["k"][0]
-        except Exception:
-            pass
-    return None
+    Args:
+        page: Playwright Page object representing the webpage.
+        validate: If True, checks the page to ensure the hardcoded sitekey is present.
+
+    Returns:
+        Optional[str]: The hCaptcha sitekey, or None if validation fails and no sitekey is found.
+    """
+    # Set up logging
+    logging.basicConfig(level=logging.DEBUG)
+    logger = logging.getLogger(__name__)
+
+    # Hardcoded sitekey for www.listadevedores.pgfn.gov.br
+    SITEKEY = "f8c1756d-a455-498f-94d4-05b16d8ad6b1"
+
+    if not validate:
+        logger.debug(f"Returning hardcoded sitekey: {SITEKEY}")
+        return SITEKEY
+
+    # Optional validation: Check if the hardcoded sitekey is present on the page
+    try:
+        await page.wait_for_load_state("networkidle", timeout=10000)
+        logger.debug("Page loaded to networkidle state.")
+
+        # Check for data-sitekey attribute
+        detected_sitekey = await page.evaluate(
+            """(sitekey) => {
+                const el = document.querySelector(`[data-sitekey="${sitekey}"]`);
+                return el ? el.getAttribute('data-sitekey') : null;
+            }""",
+            SITEKEY
+        )
+
+        if detected_sitekey == SITEKEY:
+            logger.debug(f"Validated hardcoded sitekey: {SITEKEY}")
+            return SITEKEY
+        else:
+            logger.warning(f"Hardcoded sitekey {SITEKEY} not found on page.")
+
+    except Exception as e:
+        return None
 
 
 async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int = 2) -> bool:
