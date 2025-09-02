@@ -169,7 +169,7 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
 
         debtors = await pgfn.search_company(query)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
-        inscriptions = await pgfn.open_details_and_collect_inscriptions()
+        inscriptions = await pgfn.collect_inscriptions_from_devedores()
         logging.info(f"Collected {len(inscriptions)} inscriptions.")
 
         save_as_csv_json(inscriptions, out_dir)
