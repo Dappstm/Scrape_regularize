@@ -133,8 +133,8 @@ class PGFNClient:
             logger.info("[SEARCH] Filled search with: %s", name_query)
 
         await self._bulletproof_click(
-            "button:has-text('Consultar'), text=Consultar, button[type='submit']",
-            "Consultar",
+            "button:has-text('CONSULTAR'), text=CONSULTAR, button[type='submit']",
+            "CONSULTAR",
             allow_enter=True,
         )
 
@@ -167,7 +167,7 @@ class PGFNClient:
                 continue
 
             text = json.dumps(data, ensure_ascii=False).lower()
-            if ("devedor" in text) or ("cnpj" in text and "inscricao" not in text):
+            if ("CPF" in text) or ("CNPJ" in text and "Nome" in text):
                 logger.debug("[SEARCH][%d] Candidate JSON contains debtor-like fields", idx)
                 rows: List[dict] = []
 
@@ -181,20 +181,22 @@ class PGFNClient:
                     rows = data
 
                 for r_idx, r in enumerate(rows):
-                    cnpj = str(r.get("cnpj") or r.get("CNPJ") or r.get("documento") or "").strip()
+                    cnpj = str(r.get("CPF") or r.get("CNPJ") or "").strip()
                     if not cnpj:
                         logger.debug("[SEARCH][%d][row %d] Skipping row with no CNPJ: %s", idx, r_idx, r)
                         continue
 
-                    name = (r.get("nome") or r.get("razaoSocial") or r.get("contribuinte") or "").strip()
-                    total = _to_float_safe(r.get("total") or r.get("valorTotal") or r.get("montante"))
+                    name = str(r.get("Nome") or "").strip()
+                    section = str(r.get("Seção") or "").strip(),
+                    category = str(r.get("Natureza da dívida") or "").strip(),
+                    total = _to_float_safe(r.get("Valor mínimo") or r.get("Valor máximo"))
 
                     logger.debug(
                         "[SEARCH][%d][row %d] Parsed debtor row: cnpj=%s, name='%s', total=%s",
                         idx, r_idx, cnpj, name, total
                     )
 
-                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
+                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, section=section, category=category, total=total))
             else:
                 logger.debug("[SEARCH][%d] JSON does not match debtor pattern (keys=%s)", idx, list(data)[:10])
 
@@ -223,14 +225,14 @@ class PGFNClient:
         p = self.page
         results: List[InscriptionRow] = []
 
-        detail_locators = p.locator("text=Detalhar")
+        detail_locators = p.locator("text=DETALHAR")
         count = await detail_locators.count()
         logger.info("[DETAIL] Found %d 'Detalhar' buttons", count)
         limit = count if max_entries is None else min(count, max_entries)
 
         for i in range(limit):
             clicked = await self._bulletproof_click(
-                f"(//button[contains(., 'Detalhar')])[{i+1}]",
+                f"(//button[contains(., 'DETALHAR')])[{i+1}]",
                 f"Detalhar #{i}",
                 allow_enter=False,
             )
@@ -245,11 +247,11 @@ class PGFNClient:
                 if not data:
                     continue
                 payload = json.dumps(data, ensure_ascii=False).lower()
-                if "inscricao" in payload or ("inscr" in payload and "cnpj" in payload):
+                if "Seção" in payload or ("Se" in payload and "CNPJ" in payload):
 
                     def walk_sync(obj):
                         if isinstance(obj, dict):
-                            if any(k.lower().startswith("inscr") for k in obj.keys()):
+                            if any(k.lower().startswith("Se") for k in obj.keys()):
                                 yield obj
                             for v in obj.values():
                                 yield from walk_sync(v)
@@ -260,11 +262,11 @@ class PGFNClient:
                     for r in walk_sync(data):
                         results.append(
                             InscriptionRow(
-                                cnpj=str(r.get("cnpj") or "").strip(),
-                                company_name=str(r.get("nome") or r.get("razaoSocial") or "").strip(),
-                                inscription_number=str(r.get("inscricao") or r.get("numero") or "").strip(),
-                                category=r.get("categoria") or r.get("natureza"),
-                                amount=_to_float_safe(r.get("valor") or r.get("montante") or r.get("total")),
+                                cnpj=str(r.get("CNPJ") or r.get("CPF") or "").strip(),
+                                company_name=str(r.get("Nome") or "").strip(),
+                                section=str(r.get("Seção") or "").strip(),
+                                category=str(r.get("Natureza da dívida") or "").strip(),
+                                amount=_to_float_safe(r.get("Valor mínimo") or r.get("Valor máximo"))
                             )
                         )
                         logger.debug("[DETAIL] Captured inscription: %s", r)
