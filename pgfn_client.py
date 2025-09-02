@@ -120,14 +120,14 @@ class PGFNClient:
 
         try:
             await p.wait_for_selector(
-                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", 
+                "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']", 
                 timeout=5000
             )
         except Exception:
             logger.warning("[SEARCH] Could not find name input field!")
         else:
             await p.fill(
-                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']",
+                "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']",
                 name_query,
             )
             logger.info("[SEARCH] Filled search with: %s", name_query)
@@ -167,7 +167,7 @@ class PGFNClient:
                 continue
 
             text = json.dumps(data, ensure_ascii=False).lower()
-            if ("CPF" in text) or ("CNPJ" in text and "Nome" in text):
+            if ("devedores" in text) or ("nome" in text and "totaldivida" in text):
                 logger.debug("[SEARCH][%d] Candidate JSON contains debtor-like fields", idx)
                 rows: List[dict] = []
 
@@ -181,22 +181,20 @@ class PGFNClient:
                     rows = data
 
                 for r_idx, r in enumerate(rows):
-                    cnpj = str(r.get("CPF") or r.get("CNPJ") or "").strip()
+                    cnpj = str(r.get("id") or r.get("CNPJ") or "").strip()
                     if not cnpj:
                         logger.debug("[SEARCH][%d][row %d] Skipping row with no CNPJ: %s", idx, r_idx, r)
                         continue
 
-                    name = str(r.get("Nome") or "").strip()
-                    section = str(r.get("Seção") or "").strip(),
-                    category = str(r.get("Natureza da dívida") or "").strip(),
-                    total = _to_float_safe(r.get("Valor mínimo") or r.get("Valor máximo"))
+                    name = str(r.get("nome") or "").strip()
+                    total = _to_float_safe(r.get("totaldivida"))
 
                     logger.debug(
                         "[SEARCH][%d][row %d] Parsed debtor row: cnpj=%s, name='%s', total=%s",
                         idx, r_idx, cnpj, name, total
                     )
 
-                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, section=section, category=category, total=total))
+                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
             else:
                 logger.debug("[SEARCH][%d] JSON does not match debtor pattern (keys=%s)", idx, list(data)[:10])
 
@@ -220,24 +218,24 @@ class PGFNClient:
     async def open_details_and_collect_inscriptions(
         self, max_entries: Optional[int] = None
     ) -> List[InscriptionRow]:
-        """Click Detalhar buttons and capture inscription rows from JSON responses."""
+        """Click EXPORTAR buttons and capture inscription rows from JSON responses."""
         assert self.page is not None
         p = self.page
         results: List[InscriptionRow] = []
 
-        detail_locators = p.locator("text=DETALHAR")
+        detail_locators = p.locator("text=EXPORTAR")
         count = await detail_locators.count()
-        logger.info("[DETAIL] Found %d 'Detalhar' buttons", count)
+        logger.info("[DETAIL] Found %d 'EXPORTAR' buttons", count)
         limit = count if max_entries is None else min(count, max_entries)
 
         for i in range(limit):
             clicked = await self._bulletproof_click(
-                f"(//button[contains(., 'DETALHAR')])[{i+1}]",
-                f"Detalhar #{i}",
+                f"(//button[contains(., 'EXPORTAR')])[{i+1}]",
+                f"EXPORTAR #{i}",
                 allow_enter=False,
             )
             if not clicked:
-                logger.warning("[DETAIL] Could not click Detalhar #%d", i)
+                logger.warning("[DETAIL] Could not click EXPORTAR #%d", i)
                 continue
 
             await p.wait_for_timeout(1500)
@@ -247,11 +245,11 @@ class PGFNClient:
                 if not data:
                     continue
                 payload = json.dumps(data, ensure_ascii=False).lower()
-                if "Seção" in payload or ("Se" in payload and "CNPJ" in payload):
+                if "nome" in payload or ("id" in payload and "totaldivida" in payload):
 
                     def walk_sync(obj):
                         if isinstance(obj, dict):
-                            if any(k.lower().startswith("Se") for k in obj.keys()):
+                            if any(k.lower().startswith("no") for k in obj.keys()):
                                 yield obj
                             for v in obj.values():
                                 yield from walk_sync(v)
@@ -262,11 +260,9 @@ class PGFNClient:
                     for r in walk_sync(data):
                         results.append(
                             InscriptionRow(
-                                cnpj=str(r.get("CNPJ") or r.get("CPF") or "").strip(),
-                                company_name=str(r.get("Nome") or "").strip(),
-                                section=str(r.get("Seção") or "").strip(),
-                                category=str(r.get("Natureza da dívida") or "").strip(),
-                                amount=_to_float_safe(r.get("Valor mínimo") or r.get("Valor máximo"))
+                                cnpj=str(r.get("id") or r.get("CNJP") or "").strip(),
+                                company_name=str(r.get("nome") or "").strip(),
+                                total = _to_float_safe(r.get("totaldivida"))
                             )
                         )
                         logger.debug("[DETAIL] Captured inscription: %s", r)
