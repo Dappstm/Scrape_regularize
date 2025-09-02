@@ -11,7 +11,7 @@ from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
 import os
 
-api_key = os.getenv("TWOCAPTCHA_API_KEY")
+api_key = "fa1fc5bae63538830211919b4878aec6"
 
 def only_digits(s: str) -> str:
     return re.sub(r"\D+", "", s)
