@@ -169,8 +169,21 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
 
         debtors = await pgfn.search_company(query)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
-        inscriptions = await pgfn.collect_inscriptions_from_devedores(results)
-        logging.info(f"Collected {len(inscriptions)} inscriptions.")
+
+# pull latest captured devedores JSON
+        devedores_payloads = [
+            item for item in pgfn._captured_json
+            if "devedores" in item.get("url", "")
+        ]
+
+        if devedores_payloads:
+            latest = devedores_payloads[-1]
+            data = latest.get("json") or {}
+            inscriptions = await pgfn.collect_inscriptions_from_devedores(data)
+            logging.info(f"Collected {len(inscriptions)} inscriptions.")
+        else:
+            inscriptions = []
+            logging.warning("No devedores/ JSON payload available for inscriptions.")
 
         save_as_csv_json(inscriptions, out_dir)
         upsert_inscriptions(db_engine, [
