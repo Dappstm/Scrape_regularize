@@ -120,14 +120,14 @@ class PGFNClient:
         # Fill search field
         try:
             await p.wait_for_selector(
-                "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']", 
+                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", 
                 timeout=5000
             )
         except Exception:
             logger.warning("[SEARCH] Could not find name input field!")
         else:
             await p.fill(
-                "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']",
+                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']",
                 name_query,
             )
             logger.info("[SEARCH] Filled search with: %s", name_query)
