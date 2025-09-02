@@ -154,27 +154,57 @@ class PGFNClient:
                 logger.debug("[SEARCH] Captured JSON from: %s", item["url"])
 
         debtors: List[DebtorRow] = []
-        for item in reversed(self._captured_json[-20:]):
+
+        logger.debug("[SEARCH] Inspecting last %d JSON responses", min(20, len(self._captured_json)))
+        for idx, item in enumerate(reversed(self._captured_json[-20:])):
             data = item.get("json")
+            url = item.get("url")
             if not data:
+                logger.debug("[SEARCH][%d] Skipping empty JSON from %s", idx, url)
                 continue
+
+            # Log structure of JSON
+            if isinstance(data, dict):
+                logger.debug("[SEARCH][%d] JSON dict keys from %s: %s", idx, url, list(data.keys()))
+            elif isinstance(data, list):
+                logger.debug("[SEARCH][%d] JSON list length %d from %s", idx, len(data), url)
+            else:
+                logger.debug("[SEARCH][%d] Unexpected JSON type %s from %s", idx, type(data), url)
+                continue
+
             text = json.dumps(data, ensure_ascii=False).lower()
             if ("devedor" in text) or ("cnpj" in text and "inscricao" not in text):
+                logger.debug("[SEARCH][%d] Candidate JSON contains debtor-like fields", idx)
                 rows: List[dict] = []
+
                 if isinstance(data, dict):
-                    for v in data.values():
+                    for k, v in data.items():
                         if isinstance(v, list):
+                            logger.debug("[SEARCH][%d] Found list under key '%s' with %d rows", idx, k, len(v))
                             rows.extend(v)
                 elif isinstance(data, list):
+                    logger.debug("[SEARCH][%d] Treating JSON as list with %d rows", idx, len(data))
                     rows = data
-                for r in rows:
+
+                for r_idx, r in enumerate(rows):
                     cnpj = str(r.get("cnpj") or r.get("CNPJ") or r.get("documento") or "").strip()
                     if not cnpj:
+                        logger.debug("[SEARCH][%d][row %d] Skipping row with no CNPJ: %s", idx, r_idx, r)
                         continue
+
                     name = (r.get("nome") or r.get("razaoSocial") or r.get("contribuinte") or "").strip()
                     total = _to_float_safe(r.get("total") or r.get("valorTotal") or r.get("montante"))
-                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
 
+                    logger.debug(
+                        "[SEARCH][%d][row %d] Parsed debtor row: cnpj=%s, name='%s', total=%s",
+                        idx, r_idx, cnpj, name, total
+                    )
+
+                    debtors.append(DebtorRow(cnpj=cnpj, company_name=name, total=total))
+            else:
+                logger.debug("[SEARCH][%d] JSON does not match debtor pattern (keys=%s)", idx, list(data)[:10])
+
+        # Deduplicate by CNPJ
         seen = set()
         unique = []
         for d in debtors:
@@ -186,6 +216,8 @@ class PGFNClient:
             logger.info("✅ Successfully parsed %d debtor rows for query '%s'", len(unique), name_query)
         else:
             logger.warning("⚠️ No debtor rows parsed for '%s'", name_query)
+            # Extra dump for investigation
+            logger.debug("[SEARCH] Last JSON payload (truncated): %s", json.dumps(self._captured_json[-1].get("json"), ensure_ascii=False)[:500])
 
         return unique
 
