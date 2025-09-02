@@ -1,4 +1,4 @@
-# regularize_client.py (async patched)
+# regularize_client.py (async cleaned)
 from __future__ import annotations
 import logging
 from pathlib import Path
@@ -7,6 +7,7 @@ from playwright.async_api import BrowserContext, Page
 from config import REGULARIZE_DOC, WAIT_LONG
 
 logger = logging.getLogger("RegularizeClient")
+
 
 class RegularizeClient:
     def __init__(self, context: BrowserContext, download_dir: Path):
@@ -17,72 +18,75 @@ class RegularizeClient:
         self._last_pdf_bytes: Optional[bytes] = None
 
     async def open(self):
-        """Open Regularize page and listen for PDF responses."""
+        """Open Regularize page and attach PDF capture listener."""
         self.page = await self.context.new_page()
         self.page.set_default_timeout(WAIT_LONG)
 
         async def on_response(resp):
             try:
-                if "application/pdf" in (resp.headers.get("content-type") or "").lower():
-                    logger.debug("Captured PDF response: %s", resp.url)
+                ctype = (resp.headers.get("content-type") or "").lower()
+                if "application/pdf" in ctype:
+                    logger.debug("[PDF] Captured response: %s", resp.url)
                     try:
                         self._last_pdf_bytes = await resp.body()
-                    except Exception:
+                    except Exception as e:
+                        logger.warning("[PDF] Failed to capture body: %s", e)
                         self._last_pdf_bytes = None
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[PDF] Response listener error: %s", e)
 
         self.page.on("response", on_response)
         await self.page.goto(REGULARIZE_DOC, wait_until="domcontentloaded")
+        logger.info("[OPEN] Loaded Regularize portal: %s", REGULARIZE_DOC)
 
     async def emitir_darf_integral(self, cnpj_digits_only: str, inscricao: str) -> Path:
         """Fill form and download DARF PDF asynchronously."""
         assert self.page is not None
         p = self.page
 
+        async def safe_fill(selectors: list[str], value: str) -> bool:
+            for sel in selectors:
+                try:
+                    loc = p.locator(sel)
+                    if await loc.count() > 0:
+                        if await loc.count() > 1:
+                            await loc.nth(1).fill(value)
+                        else:
+                            await loc.fill(value)
+                        logger.debug("[FORM] Filled %s with %s", sel, value)
+                        return True
+                except Exception:
+                    continue
+            return False
+
+        async def safe_click(selectors: list[str]) -> bool:
+            for sel in selectors:
+                try:
+                    loc = p.locator(sel)
+                    if await loc.count() > 0:
+                        await loc.click()
+                        logger.debug("[CLICK] Clicked %s", sel)
+                        return True
+                except Exception:
+                    continue
+            return False
+
         # Fill CPF/CNPJ
-        for sel in ["input[name='cpfCnpj']", "input[id*='cpf']", "input[type='text']"]:
-            try:
-                if await p.locator(sel).count() > 0:
-                    await p.fill(sel, cnpj_digits_only)
-                    break
-            except Exception:
-                continue
+        await safe_fill(["input[name='cpfCnpj']", "input[id*='cpf']", "input[type='text']"], cnpj_digits_only)
 
         # Fill inscrição
-        for sel in ["input[name='inscricao']", "input[id*='inscr']", "input[type='text']"]:
-            try:
-                loc = p.locator(sel)
-                if await loc.count() > 1:
-                    await loc.nth(1).fill(inscricao)
-                else:
-                    await loc.fill(inscricao)
-                break
-            except Exception:
-                continue
+        await safe_fill(["input[name='inscricao']", "input[id*='inscr']", "input[type='text']"], inscricao)
 
         # Consultar
-        for btn in ["button:has-text('Consultar')", "text=Consultar", "button[type='submit']"]:
-            try:
-                if await p.locator(btn).count() > 0:
-                    await p.click(btn)
-                    break
-            except Exception:
-                continue
-
+        await safe_click(["button:has-text('Consultar')", "text=Consultar", "button[type='submit']"])
         await p.wait_for_timeout(1200)
 
         # Emitir DARF
-        for btn in ["button:has-text('Emitir DARF integral')", "text=Emitir DARF integral"]:
-            try:
-                if await p.locator(btn).count() > 0:
-                    await p.click(btn)
-                    break
-            except Exception:
-                continue
+        await safe_click(["button:has-text('Emitir DARF integral')", "text=Emitir DARF integral"])
+
+        pdf_path: Optional[Path] = None
 
         # Try Imprimir → download
-        pdf_path = None
         try:
             for btn in ["button:has-text('Imprimir')", "text=Imprimir"]:
                 try:
@@ -94,23 +98,24 @@ class RegularizeClient:
                         target = self.download_dir / fname
                         await download.save_as(str(target))
                         pdf_path = target
-                        logger.info("Downloaded DARF via expect_download: %s", target)
+                        logger.info("[DARF] Downloaded via expect_download: %s", target)
                         break
-                except Exception:
+                except Exception as e:
+                    logger.debug("[DARF] expect_download failed for %s: %s", btn, e)
                     continue
         except Exception:
-            logger.exception("expect_download attempt failed")
+            logger.exception("[DARF] expect_download attempt failed")
 
-        # fallback: intercepted PDF bytes
+        # Fallback: intercepted PDF bytes
         if pdf_path is None and self._last_pdf_bytes:
             fname = f"DARF_{cnpj_digits_only}_{inscricao.replace(' ', '_').replace('/', '-')}.pdf"
             target = self.download_dir / fname
             with open(target, "wb") as f:
                 f.write(self._last_pdf_bytes)
             pdf_path = target
-            logger.info("Saved DARF from intercepted PDF response: %s", target)
+            logger.info("[DARF] Saved from intercepted PDF response: %s", target)
 
         if pdf_path is None:
-            raise RuntimeError(f"Could not obtain DARF PDF for {cnpj_digits_only} / {inscricao}")
+            raise RuntimeError(f"❌ Could not obtain DARF PDF for {cnpj_digits_only} / {inscricao}")
 
         return pdf_path
