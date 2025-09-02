@@ -9,8 +9,14 @@ from config import DEFAULT_OUT_DIR, DEFAULT_DB_PATH, DEFAULT_DOWNLOAD_DIR, PGFN_
 from pgfn_client import PGFNClient
 from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
+import os
+from dotenv import load_dotenv
 
+# Load environment variables from .env file
+load_dotenv()
 
+# Read env var
+API_KEY = os.getenv("TWOCAPTCHA_API_KEY")
 
 def only_digits(s: str) -> str:
     return re.sub(r"\D+", "", s)
@@ -78,7 +84,7 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
         logging.warning("[HCAPTCHA] Could not detect hCaptcha sitekey.")
         return False
 
-    solver = TwoCaptcha(os.getenv("TWOCAPTCHA_API_KEY"))
+    solver = TwoCaptcha(API_KEY)
 
     attempt = 0
     while attempt <= retries:
