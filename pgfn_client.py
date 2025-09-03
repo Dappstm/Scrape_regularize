@@ -46,8 +46,17 @@ class PGFNClient:
     def __init__(self, context: BrowserContext):
         self.context = context
         self.page: Optional[Page] = None
-        self._captured_json: List[Dict[str, Any]] = []
         self._passed_hcaptcha: bool = False  # set in main.py once token injected
+        self._client = httpx.AsyncClient(
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            },
+            timeout=30.0,
+        )
+
+    async def aclose(self):
+        await self._client.aclose()
 
     async def _bulletproof_click(self, selector: str, label: str, allow_enter: bool = False) -> bool:
         """Try multiple strategies to click a button reliably."""
