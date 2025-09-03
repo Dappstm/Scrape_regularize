@@ -100,11 +100,10 @@ class PGFNClient:
                     if "application/json" in ctype or resp.url.endswith(".json"):
                         try:
                             data = await resp.json()
-                            self._captured_json.append({"url": resp.url, "json": data})
+                            self._captured_json.append({"url": resp.url, "json": data, "status": resp.status})
                             logger.info(
-                                "[XHR] Captured JSON from %s (keys=%s)",
-                                resp.url,
-                                list(data.keys()) if isinstance(data, dict) else type(data)
+                                "[XHR] Captured JSON from %s (status=%s, keys=%s)",
+                                resp.url, resp.status, list(data.keys()) if isinstance(data, dict) else type(data)
                             )
                         except Exception as e:
                             logger.warning("[XHR] Failed to parse JSON from %s: %s", resp.url, e)
@@ -116,11 +115,10 @@ class PGFNClient:
                     if "application/json" in ctype or resp.url.endswith(".json"):
                         try:
                             data = await resp.json()
-                            self._captured_json.append({"url": resp.url, "json": data})
+                            self._captured_json.append({"url": resp.url, "json": data, "status": resp.status})
                             logger.debug(
-                                "[XHR] Captured JSON from %s (keys=%s)",
-                                resp.url,
-                                list(data.keys()) if isinstance(data, dict) else type(data)
+                                "[XHR] Captured JSON from %s (status=%s, keys=%s)",
+                                resp.url, resp.status, list(data.keys()) if isinstance(data, dict) else type(data)
                             )
                         except Exception as e:
                             logger.debug("[XHR] Failed to parse JSON from %s: %s", resp.url, e)
@@ -145,30 +143,25 @@ class PGFNClient:
             allow_enter=True,
         )
 
-        # Step 2: Wait for /api/devedores/ XHR response
-        try:
-            response = await p.wait_for_response(
-                lambda r: "devedores" in r.url.lower() and r.request.method == "POST" and r.status == 200,
-                timeout=30000
-            )
-            logger.info("[SEARCH] Captured /api/devedores/ XHR response: %s", response.url)
-            try:
-                data = await response.json()
+        # Step 2: Wait for XHR response
+        await p.wait_for_timeout(30000)  # Wait 30s for /api/devedores/
+        logger.info("[SEARCH] Checking captured_json for /api/devedores/ response")
+
+        # Step 3: Find /api/devedores/ response with status 200
+        data = None
+        for item in self._captured_json:
+            if "/api/devedores/" in item["url"].lower() and item.get("status") == 200:
+                logger.info("[SEARCH] Found /api/devedores/ in captured_json: %s (status=%s)", item["url"], item["status"])
+                data = item["json"]
                 logger.debug("[SEARCH] Raw devedores JSON type: %s, keys=%s", type(data), list(data.keys()) if isinstance(data, dict) else [])
-            except Exception as e:
-                logger.error("[SEARCH] Failed to parse JSON from %s: %s", response.url, e)
-                return []
-        except Exception as e:
-            logger.warning("[SEARCH] No /api/devedores/ XHR response captured within 30s: %s", e)
-            # Fallback: Check self._captured_json
+                logger.debug("[SEARCH] Full response JSON: %s", data)
+                break
+        else:
+            logger.error("[SEARCH] No /api/devedores/ response with status 200 in captured_json")
             for item in self._captured_json:
-                if "devedores" in item["url"].lower():
-                    logger.info("[SEARCH] Found /api/devedores/ in captured_json: %s", item["url"])
-                    data = item["json"]
-                    break
-            else:
-                logger.error("[SEARCH] No /api/devedores/ response found in captured_json")
-                return []
+                if "/api/devedores/" in item["url"].lower():
+                    logger.warning("[SEARCH] Found /api/devedores/ with status %s: %s", item["status"], item["json"])
+            return []
 
         debtors: List[DebtorRow] = []
 
