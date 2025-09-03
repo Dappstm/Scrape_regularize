@@ -116,7 +116,7 @@ class PGFNClient:
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
 
-    async def search_company(self, name_query: str) -> List[DebtorRow]:
+    async def search_company(self, name_query: str, hcaptcha_response: Optional[str] = None) -> List[DebtorRow]:
         """Perform a company search by calling /api/devedores/ directly."""
         assert self.page is not None
         p = self.page
