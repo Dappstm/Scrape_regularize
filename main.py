@@ -89,7 +89,7 @@ async def _detect_hcaptcha_sitekey(page: Page, validate: bool = False) -> Option
 
 async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int = 2) -> tuple[bool, Optional[str]]:
     """
-    Solve hCaptcha with 2Captcha and inject into Playwright page with a delay to avoid bot detection.
+    Solve hCaptcha with 2Captcha, inject into Playwright page, and add human-like behavior.
     
     Args:
         page: Playwright Page object.
@@ -127,14 +127,14 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                 logging.error("[HCAPTCHA] 2Captcha returned no token (attempt %s).", attempt)
                 continue
 
-            # Add delay to mimic human behavior
-            await page.wait_for_timeout(5000)  # Wait 5s before injecting
-            logging.info("[HCAPTCHA] Got token: %s", token)
+            # Add human-like delay and mouse movement
+            await page.wait_for_timeout(5000)  # Wait 5s
+            await page.mouse.move(500, 500, steps=10)  # Simulate mouse movement
+            await page.wait_for_timeout(1000)
+            formatted_token = f"P1_{token}"  # Match browser's Recaptcha header
+            logging.info("[HCAPTCHA] Got token: %s, formatted: %s", token, formatted_token)
 
-            # Try both raw and P1_ prefixed token
-            formatted_token = token  # Start with raw token
-            logging.info("[HCAPTCHA] Injecting token: %s", formatted_token)
-
+            # Inject token
             await page.evaluate(
                 """(token) => {
                     function setTextarea(name, value) {
@@ -154,10 +154,12 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                 }""",
                 formatted_token,
             )
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(2000)
 
-            # Verify injection
+            # Verify injection and log cookies
             injected_token = await page.evaluate("document.querySelector('textarea[name=\"h-captcha-response\"]')?.value")
+            cookies = await page.context.cookies()
+            logging.debug("[HCAPTCHA] Cookies: %s", {c["name"]: c["value"] for c in cookies})
             if injected_token:
                 logging.info("[HCAPTCHA] Token injected successfully: %s", injected_token)
                 return True, injected_token
@@ -194,7 +196,7 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
             logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
 
                 # Get debtor rows directly from search_company
-        debtors = await pgfn.search_company(query)
+        debtors = await pgfn.search_company(query, max_retries=2)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
 
         # Save and upsert into DB
