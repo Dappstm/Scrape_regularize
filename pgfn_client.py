@@ -152,7 +152,7 @@ class PGFNClient:
                 timeout=30000
             )
             logger.info("[SEARCH] Captured /api/devedores/ XHR response: %s", response.url)
-           try:
+            try:
                 data = await response.json()
                 logger.debug("[SEARCH] Raw devedores JSON type: %s, keys=%s", type(data), list(data.keys()) if isinstance(data, dict) else [])
             except Exception as e:
