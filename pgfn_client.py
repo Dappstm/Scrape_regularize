@@ -144,7 +144,7 @@ class PGFNClient:
         )
 
         # Step 2: Wait for XHR response
-        await p.wait_for_timeout(30000)  # Wait 30s for /api/devedores/
+        await p.wait_for_timeout(60000)  # Wait 60s for /api/devedores/
         logger.info("[SEARCH] Checking captured_json for /api/devedores/ response")
 
         # Step 3: Find /api/devedores/ response with status 200
