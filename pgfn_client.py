@@ -1,6 +1,5 @@
 # pgfn_client.py
 from __future__ import annotations
-import httpx
 import json, logging
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
@@ -47,13 +46,7 @@ class PGFNClient:
         self.context = context
         self.page: Optional[Page] = None
         self._passed_hcaptcha: bool = False  # set in main.py once token injected
-        self._client = httpx.AsyncClient(
-            headers={
-                "Content-Type": "application/json",
-                "Accept": "application/json",
-            },
-            timeout=30.0,
-        )
+        self._captured_json = []
 
     async def aclose(self):
         await self._client.aclose()
@@ -93,30 +86,55 @@ class PGFNClient:
 
         async def on_response(resp):
             try:
-                logger.info("[XHR] %s %s", resp.request.method, resp.url) # 👈 log every response
+                # Log every response for debugging
+                logger.debug("[XHR] %s %s (status=%s, content-type=%s)", 
+                            resp.request.method, resp.url, resp.status, resp.headers.get("content-type", ""))
+
+                # Check if response is a POST to /api/devedores/
+                if resp.request.method == "POST" and "devedores" in resp.url.lower():
+                    logger.info("[XHR] Captured POST to %s (status=%s)", resp.url, resp.status)
                 
-                url = resp.url
-                ctype = resp.headers.get("content-type", "")
-                if (("application/json" in ctype) or url.endswith(".json")) and _matches_json_hint(url):
-                    try:
-                        data = await resp.json()
-                        self._captured_json.append({"url": url, "json": data})
-                        logger.info(
-                            "[XHR] Captured JSON from %s (keys=%s)",
-                            url,
-                            list(data.keys()) if isinstance(data, dict) else type(data),
-                        )
-                    except Exception as e:
-                        logger.warning("[XHR] Failed to parse JSON from %s: %s", url, e)
+                # Log headers for debugging (e.g., Recaptcha)
+                    logger.debug("[XHR] Request headers: %s", resp.request.headers)
+
+                # Check content-type and URL for JSON
+                    ctype = resp.headers.get("content-type", "").lower()
+                    if "application/json" in ctype or resp.url.endswith(".json"):
+                        try:
+                            data = await resp.json()
+                            self._captured_json.append({"url": resp.url, "json": data})
+                            logger.info(
+                                "[XHR] Captured JSON from %s (keys=%s)",
+                                resp.url,
+                                list(data.keys()) if isinstance(data, dict) else type(data)
+                            )
+                        except Exception as e:
+                            logger.warning("[XHR] Failed to parse JSON from %s: %s", resp.url, e)
+                    else:
+                        logger.warning("[XHR] Non-JSON response from %s (content-type=%s)", resp.url, ctype)
+                elif _matches_json_hint(resp.url):
+                    # Capture other JSON responses as fallback
+                    ctype = resp.headers.get("content-type", "").lower()
+                    if "application/json" in ctype or resp.url.endswith(".json"):
+                        try:
+                            data = await resp.json()
+                            self._captured_json.append({"url": resp.url, "json": data})
+                            logger.debug(
+                                "[XHR] Captured JSON from %s (keys=%s)",
+                                resp.url,
+                                list(data.keys()) if isinstance(data, dict) else type(data)
+                            )
+                        except Exception as e:
+                            logger.debug("[XHR] Failed to parse JSON from %s: %s", resp.url, e)
             except Exception as e:
-                logger.debug("[XHR] Response hook error: %s", e)
+                logger.error("[XHR] Response hook error for %s: %s", resp.url, e)
 
         self.page.on("response", on_response)
         logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
 
-    async def search_company(self, name_query: str, hcaptcha_response: Optional[str] = None) -> List[DebtorRow]:
+    async def search_company(self, name_query: str) -> List[DebtorRow]:
         """Perform a company search by calling /api/devedores/ directly."""
         assert self.page is not None
         p = self.page
@@ -129,42 +147,30 @@ class PGFNClient:
             allow_enter=True,
         )
 
-        # Grab cookies + headers from Playwright context so API request is authenticated
-        context_cookies = await self.context.cookies()
-        cookies = {c["name"]: c["value"] for c in context_cookies}
-
-        headers = {
-            "Accept": "application/json, text/plain, */*",
-            "Content-Type": "application/json;charset=UTF-8",
-            "Recaptcha": hcaptcha_response if hcaptcha_response else ""  # Add hCaptcha token
-        }
-
-        # Direct POST to /api/devedores/
-        api_url = "https://www.listadevedores.pgfn.gov.br/api/devedores/"
-        payload = {
-            "naturezas": "00000000000",
-            "nome": name_query 
-        }
-        # headers["Recaptcha"] = hcaptcha_response if hcaptcha_response else ""  # Add hCaptcha token
+        # Step 2: Wait for /api/devedores/ XHR response
         try:
-            async with httpx.AsyncClient(cookies=cookies, headers=headers, timeout=30.0) as client:
-                resp = await self._client.post(api_url, json=payload)
-                resp.raise_for_status()
-                data = resp.json()
-                logger.info("[SEARCH] Direct API response received from %s", api_url)
-        except httpx.HTTPStatusError as e:
-            logger.error("[SEARCH] API call to %s failed: %s", api_url, e)
-            try:
-                error_data = resp.json()
-                logger.debug("[SEARCH] Error response body: %s", error_data)
-            except:
-                logger.debug("[SEARCH] No JSON in error response")
-            return []
+            response = await p.wait_for_response(
+                lambda r: "devedores" in r.url.lower() and r.request.method == "POST" and r.status == 200,
+                timeout=30000
+            )
+            logger.info("[SEARCH] Captured /api/devedores/ XHR response: %s", response.url)
+           try:
+                data = await response.json()
+                logger.debug("[SEARCH] Raw devedores JSON type: %s, keys=%s", type(data), list(data.keys()) if isinstance(data, dict) else [])
+            except Exception as e:
+                logger.error("[SEARCH] Failed to parse JSON from %s: %s", response.url, e)
+                return []
         except Exception as e:
-            logger.error("[SEARCH] Unexpected error for API call to %s: %s", api_url, e)
-            return []
-
-        logger.debug("[SEARCH] Raw devedores JSON type: %s", type(data))
+            logger.warning("[SEARCH] No /api/devedores/ XHR response captured within 30s: %s", e)
+            # Fallback: Check self._captured_json
+            for item in self._captured_json:
+                if "devedores" in item["url"].lower():
+                    logger.info("[SEARCH] Found /api/devedores/ in captured_json: %s", item["url"])
+                    data = item["json"]
+                    break
+            else:
+                logger.error("[SEARCH] No /api/devedores/ response found in captured_json")
+                return []
 
         debtors: List[DebtorRow] = []
 
