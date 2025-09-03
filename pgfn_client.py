@@ -131,10 +131,13 @@ class PGFNClient:
 
         # Direct POST to /api/devedores/
         api_url = "https://www.listadevedores.pgfn.gov.br/api/devedores/"
-        payload = {"nome": name_query}  # minimum required field; expand if API needs more
+        payload = {
+            "naturezas": "00000000000",
+            "nome": name_query
+        }
         try:
             async with httpx.AsyncClient(cookies=cookies, headers=headers, timeout=30.0) as client:
-                resp = await client.post(api_url, json=payload)
+                resp = await self._client.post(api_url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
             logger.info("[SEARCH] Direct API response received from %s", api_url)
