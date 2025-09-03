@@ -138,7 +138,7 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
             )
             await page.wait_for_timeout(1500)
             logging.info("[HCAPTCHA] Token injected successfully.")
-            return True, token
+            return True
 
         except Exception as e:
             logging.error("[HCAPTCHA] 2Captcha attempt %s failed: %s", attempt, e, exc_info=True)
@@ -159,18 +159,17 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
         await pgfn.open()  # creates pgfn.page at PGFN_BASE
 
 
-        hcaptcha_token = None
         if api_key:
-            solved, hcaptcha_token = await _solve_hcaptcha_with_2captcha(pgfn.page, api_key, retries=2)
+            solved = await _solve_hcaptcha_with_2captcha(pgfn.page, api_key, retries=2)
             if solved:
-                logging.info("✅ hCaptcha solved for PGFN session. Token: %s", hcaptcha_token)
+                logging.info("✅ hCaptcha solved for PGFN session)
             else:
                 logging.warning("⚠️ Failed to solve hCaptcha, continuing anyway (may fail).")
         else:
             logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
 
                 # Get debtor rows directly from search_company
-        debtors = await pgfn.search_company(query, hcaptcha_response=hcaptcha_token)
+        debtors = await pgfn.search_company(query)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
 
         # Save and upsert into DB
