@@ -83,6 +83,8 @@ class PGFNClient:
 
         async def on_response(resp):
             try:
+                logger.debug("[XHR] %s %s", resp.request.method, resp.url) # 👈 log every response
+                
                 url = resp.url
                 ctype = resp.headers.get("content-type", "")
                 if (("application/json" in ctype) or url.endswith(".json")) and _matches_json_hint(url):
