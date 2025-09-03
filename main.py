@@ -130,8 +130,9 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
             # Add human-like delay and mouse movement
             await page.wait_for_timeout(5000)  # Wait 5s
             await page.mouse.move(500, 500, steps=10)  # Simulate mouse movement
+            await p.mouse.click(200, 200)
             await page.wait_for_timeout(1000)
-            formatted_token = f"P1_{token}"  # Match browser's Recaptcha header
+            formatted_token = token  # Match browser's Recaptcha header
             logging.info("[HCAPTCHA] Got token: %s, formatted: %s", token, formatted_token)
 
             # Inject token
@@ -194,6 +195,11 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
                 logging.warning("⚠️ Failed to solve hCaptcha, continuing anyway (may fail).")
         else:
             logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
+            
+            await page.wait_for_timeout(5000)  # Wait 5s
+            await page.mouse.move(500, 500, steps=10)  # Simulate mouse movement
+            await p.mouse.click(200, 200)
+            await page.wait_for_timeout(1000)
 
                 # Get debtor rows directly from search_company
         debtors = await pgfn.search_company(query, max_retries=2)
