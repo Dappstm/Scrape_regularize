@@ -134,15 +134,17 @@ class PGFNClient:
         )
 
         # Wait a bit for the XHR to fire
-        await p.wait_for_timeout(180000)
+        await p.wait_for_timeout(30000)
         
-        # Wait for CONSULTAR results to load
+        # After clicking CONSULTAR
         try:
-            await p.wait_for_response(
-                lambda r: "devedores" in r.url.lower(),
-                timeout=5000,
+            resp = await p.wait_for_response(
+                lambda r: "devedores" in r.url.lower(),  # match any method, any casing
+                timeout=30000
             )
-            logger.info("[SEARCH] devedores/ response captured after CONSULTAR")
+            logger.info("[SEARCH] devedores/ response captured: %s %s", resp.request.method, resp.url)
+            data = await resp.json()
+            self._captured_json.append({"url": resp.url, "json": data})
         except Exception:
             logger.warning("[SEARCH] No devedores/ response detected after CONSULTAR click")
 
