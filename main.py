@@ -162,7 +162,7 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
         if api_key:
             solved = await _solve_hcaptcha_with_2captcha(pgfn.page, api_key, retries=2)
             if solved:
-                logging.info("✅ hCaptcha solved for PGFN session)
+                logging.info("✅ hCaptcha solved for PGFN session")
             else:
                 logging.warning("⚠️ Failed to solve hCaptcha, continuing anyway (may fail).")
         else:
