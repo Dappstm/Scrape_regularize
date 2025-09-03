@@ -107,60 +107,40 @@ class PGFNClient:
         logger.info("[PGFN] Base page loaded.")
 
     async def search_company(self, name_query: str) -> List[DebtorRow]:
-        """Perform a company search by name and capture debtor rows from devedores/ JSON."""
+        """Perform a company search by calling /api/devedores/ directly."""
         assert self.page is not None
         p = self.page
 
-        # Fill search field
-        try:
-            await p.wait_for_selector(
-                "input#nome, input[formcontrolname='nome']", 
-                timeout=5000
-            )
-        except Exception:
-            logger.warning("[SEARCH] Could not find name input field!")
-        else:
-            await p.fill(
-                "input#nome, input[formcontrolname='nome']",
-                name_query,
-            )
-            logger.info("[SEARCH] Filled search with: %s", name_query)
-
-        # Click "CONSULTAR"
+        # First, click CONSULTAR so the site updates normally (keeps session/cookies aligned)
+        await p.fill("input#nome, input[formcontrolname='nome']", name_query)
         await self._bulletproof_click(
             "button:has-text('Consultar'), button.btn.btn-warning",
             "CONSULTAR",
             allow_enter=True,
         )
 
-        # Wait a bit for the XHR to fire
-        await p.wait_for_timeout(30000)
-        
-        # After clicking CONSULTAR
+        # Grab cookies + headers from Playwright context so API request is authenticated
+        context_cookies = await self.context.cookies()
+        cookies = {c["name"]: c["value"] for c in context_cookies}
+
+        headers = {
+            "Accept": "application/json, text/plain, */*",
+            "Content-Type": "application/json;charset=UTF-8",
+        }
+
+        # Direct POST to /api/devedores/
+        api_url = "https://www.listadevedores.pgfn.gov.br/api/devedores/"
+        payload = {"nome": name_query}  # minimum required field; expand if API needs more
         try:
-            resp = await p.wait_for_response(
-                lambda r: "devedores" in r.url.lower(),  # match any method, any casing
-                timeout=30000
-            )
-            logger.info("[SEARCH] devedores/ response captured: %s %s", resp.request.method, resp.url)
-            data = await resp.json()
-            self._captured_json.append({"url": resp.url, "json": data})
-        except Exception:
-            logger.warning("[SEARCH] No devedores/ response detected after CONSULTAR click")
-
-        # Filter captured JSON for devedores/
-        devedores_payloads = [
-            item for item in self._captured_json 
-            if "devedores" in item.get("url", "")
-        ]
-
-        if not devedores_payloads:
-            logger.warning("[SEARCH] No devedores/ JSON found after query '%s'", name_query)
+            async with httpx.AsyncClient(cookies=cookies, headers=headers, timeout=30.0) as client:
+                resp = await client.post(api_url, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+            logger.info("[SEARCH] Direct API response received from %s", api_url)
+        except Exception as e:
+            logger.error("[SEARCH] API call to %s failed: %s", api_url, e)
             return []
 
-        # Use the latest devedores/ response
-        latest = devedores_payloads[-1]
-        data = latest.get("json") or {}
         logger.debug("[SEARCH] Raw devedores JSON type: %s", type(data))
 
         debtors: List[DebtorRow] = []
@@ -182,19 +162,18 @@ class PGFNClient:
             fantasy = str(r.get("nomefantasia") or "").strip()
             total = _to_float_safe(r.get("totaldivida"))
 
-            debtors.append(
-                DebtorRow(
-                    cnpj=cnpj,
-                    company_name=name,
-                    fantasy_name=fantasy,
-                    total=total,
-                )
+            debtor = DebtorRow(
+                cnpj=cnpj,
+                company_name=name,
+                fantasy_name=fantasy,
+                total=total,
             )
-            logger.debug("[SEARCH] Parsed debtor row: %s", debtors[-1])
+            debtors.append(debtor)
+            logger.debug("[SEARCH] Parsed debtor row: %s", debtor)
 
         # Deduplicate
         seen = set()
-        unique = []
+        unique: List[DebtorRow] = []
         for d in debtors:
             if d.cnpj not in seen:
                 unique.append(d)
@@ -206,9 +185,13 @@ class PGFNClient:
     async def collect_inscriptions_from_devedores(
         self, devedores_payload: Union[Dict[str, Any], List[Dict[str, Any]]]
     ) -> List[InscriptionRow]:
-        """Extract inscription rows directly from devedores JSON (no EXPORTAR click needed)."""
+        """
+        Fetch and extract inscription rows directly from /api/devedores/{id}.
+        This bypasses EXPORTAR and uses the backend API for details.
+        """
         results: List[InscriptionRow] = []
 
+        # Normalize records
         if isinstance(devedores_payload, dict):
             records = devedores_payload.get("devedores", [])
         elif isinstance(devedores_payload, list):
@@ -217,17 +200,38 @@ class PGFNClient:
             logger.warning("[DETAIL] Unexpected devedores payload type: %s", type(devedores_payload))
             return results
 
-        for r in records:
-            cnpj = str(r.get("id") or "").strip()
-            if not cnpj:
-                continue
-            row = InscriptionRow(
-                cnpj=cnpj,
-                company_name=str(r.get("nome") or "").strip(),
-                amount=_to_float_safe(r.get("totaldivida")),
-            )
-            results.append(row)
-            logger.debug("[DETAIL] Parsed inscription row: %s", row)
+        # Grab cookies from Playwright context (same trick as in search_company)
+        context_cookies = await self.context.cookies()
+        cookies = {c["name"]: c["value"] for c in context_cookies}
 
-        logger.info("[DETAIL] Collected %d inscriptions directly from devedores JSON", len(results))
+        headers = {
+           "Accept": "application/json, text/plain, */*",
+           "Content-Type": "application/json;charset=UTF-8",
+        }
+
+        async with httpx.AsyncClient(cookies=cookies, headers=headers, timeout=30.0) as client:
+            for r in records:
+                cnpj = str(r.get("id") or "").strip()
+                if not cnpj:
+                    continue
+
+                try:
+                    api_url = f"https://www.listadevedores.pgfn.gov.br/api/devedores/{cnpj}"
+                    resp = await client.get(api_url)
+                    resp.raise_for_status()
+                    detail_data = resp.json()
+                    logger.debug("[DETAIL] Got detail for CNPJ %s: keys=%s",
+                                 cnpj, list(detail_data.keys()) if isinstance(detail_data, dict) else type(detail_data))
+
+                    row = InscriptionRow(
+                        cnpj=cnpj,
+                        company_name=str(r.get("nome") or "").strip(),
+                        amount=_to_float_safe(r.get("totaldivida"))
+                    )
+                    results.append(row)
+                    logger.debug("[DETAIL] Parsed inscription row: %s", row)
+                except Exception as e:
+                    logger.error("[DETAIL] Failed to fetch detail for CNPJ %s: %s", cnpj, e)
+
+        logger.info("[DETAIL] Collected %d inscriptions from API", len(results))
         return results
