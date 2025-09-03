@@ -178,44 +178,47 @@ class PGFNClient:
                 logger.error("[SEARCH] No /api/devedores/ response with status 200 after %s attempts", max_retries + 1)
                 return []
 
-        debtors: List[DebtorRow] = []
+            debtors: List[DebtorRow] = []
 
-        # Case 1: {"pagina": 1, "devedores": [...]}
-        if isinstance(data, dict) and "devedores" in data:
-            records = data["devedores"]
-        # Case 2: plain list
-        elif isinstance(data, list):
-            records = data
-        else:
-            records = []
+            # Case 1: {"pagina": 1, "devedores": [...]}
+            if isinstance(data, dict) and "devedores" in data:
+                records = data["devedores"]
+            # Case 2: plain list
+            elif isinstance(data, list):
+                records = data
+            else:
+                records = []
 
-        for r in records:
-            cnpj = str(r.get("id") or "").strip()
-            if not cnpj:
-                continue
-            name = str(r.get("nome") or "").strip()
-            fantasy = str(r.get("nomefantasia") or "").strip()
-            total = _to_float_safe(r.get("totaldivida"))
+            for r in records:
+                cnpj = str(r.get("id") or "").strip()
+                if not cnpj:
+                    continue
+                name = str(r.get("nome") or "").strip()
+                fantasy = str(r.get("nomefantasia") or "").strip()
+                total = _to_float_safe(r.get("totaldivida"))
 
-            debtor = DebtorRow(
-                cnpj=cnpj,
-                company_name=name,
-                fantasy_name=fantasy,
-                total=total,
-            )
-            debtors.append(debtor)
-            logger.debug("[SEARCH] Parsed debtor row: %s", debtor)
+                debtor = DebtorRow(
+                    cnpj=cnpj,
+                    company_name=name,
+                    fantasy_name=fantasy,
+                    total=total,
+                )
+                debtors.append(debtor)
+                logger.debug("[SEARCH] Parsed debtor row: %s", debtor)
 
-        # Deduplicate
-        seen = set()
-        unique: List[DebtorRow] = []
-        for d in debtors:
-            if d.cnpj not in seen:
-                unique.append(d)
-                seen.add(d.cnpj)
+            # Deduplicate
+            seen = set()
+            unique: List[DebtorRow] = []
+            for d in debtors:
+                if d.cnpj not in seen:
+                    unique.append(d)
+                    seen.add(d.cnpj)
 
-        logger.info("✅ Parsed %d debtor rows for query '%s'", len(unique), name_query)
-        return unique
+            logger.info("✅ Parsed %d debtor rows for query '%s'", len(unique), name_query)
+            return unique
+    
+        logger.error("[SEARCH] Failed to get valid /api/devedores/ response after %s attempts", max_retries + 1)
+        return []
 
     async def collect_inscriptions_from_devedores(
         self, devedores_payload: Union[Dict[str, Any], List[Dict[str, Any]]]
