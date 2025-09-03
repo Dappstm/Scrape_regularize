@@ -136,6 +136,7 @@ class PGFNClient:
         headers = {
             "Accept": "application/json, text/plain, */*",
             "Content-Type": "application/json;charset=UTF-8",
+            "Recaptcha": hcaptcha_response if hcaptcha_response else ""  # Add hCaptcha token
         }
 
         # Direct POST to /api/devedores/
@@ -144,7 +145,7 @@ class PGFNClient:
             "naturezas": "00000000000",
             "nome": name_query 
         }
-        headers["Recaptcha"] = hcaptcha_response if hcaptcha_response else ""  # Add hCaptcha token
+        # headers["Recaptcha"] = hcaptcha_response if hcaptcha_response else ""  # Add hCaptcha token
         try:
             async with httpx.AsyncClient(cookies=cookies, headers=headers, timeout=30.0) as client:
                 resp = await self._client.post(api_url, json=payload)
