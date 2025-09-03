@@ -48,8 +48,6 @@ class PGFNClient:
         self._passed_hcaptcha: bool = False  # set in main.py once token injected
         self._captured_json = []
 
-    async def aclose(self):
-        await self._client.aclose()
 
     async def _bulletproof_click(self, selector: str, label: str, allow_enter: bool = False) -> bool:
         """Try multiple strategies to click a button reliably."""
