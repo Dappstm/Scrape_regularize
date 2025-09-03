@@ -135,20 +135,21 @@ class PGFNClient:
         assert self.page is not None
         p = self.page
 
-        # Capture Authorization header (if set by page)
-        authorization_token = await p.evaluate("localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || ''")
-        if authorization_token:
-            logging.info("[SEARCH] Found Authorization token: Bearer %s", authorization_token[:10] + "...")
-
         for attempt in range(max_retries + 1):
             # Clear previous captured JSON
             self._captured_json = []
 
             # Step 1: Fill form and click CONSULTAR
-            await p.wait_for_timeout(5000)  # Wait 5s
-            await p.mouse.move(500, 500, steps=10)  # Simulate mouse movement
-            await p.wait_for_timeout(1000)
+            await p.wait_for_timeout(random.randint(1000, 2000))
+            input_field = await p.query_selector("input#nome, input[formcontrolname='nome']")
+            if input_field:
+                box = await input_field.bounding_box()
+                if box:
+                    await p.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2, steps=15)
+                    await p.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
             await p.fill("input#nome, input[formcontrolname='nome']", name_query)
+            await p.wait_for_timeout(random.randint(1000, 2000))
+            
             await self._bulletproof_click(
                 "button:has-text('Consultar'), button.btn.btn-warning",
                 "CONSULTAR",
