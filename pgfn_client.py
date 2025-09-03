@@ -138,7 +138,7 @@ class PGFNClient:
         try:
             await p.wait_for_response(
                 lambda r: "devedores/" in r.url and r.request.method == "POST",
-                timeout=30000,
+                timeout=180000,
             )
             logger.info("[SEARCH] devedores/ response captured after CONSULTAR")
         except Exception:
