@@ -130,38 +130,53 @@ class PGFNClient:
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
 
-    async def search_company(self, name_query: str) -> List[DebtorRow]:
+    async def search_company(self, name_query: str, max_retries: int = 2) -> List[DebtorRow]:
         """Perform a company search by calling /api/devedores/ directly."""
         assert self.page is not None
         p = self.page
 
-        # First, click CONSULTAR so the site updates normally (keeps session/cookies aligned)
-        await p.fill("input#nome, input[formcontrolname='nome']", name_query)
-        await self._bulletproof_click(
-            "button:has-text('Consultar'), button.btn.btn-warning",
-            "CONSULTAR",
-            allow_enter=True,
-        )
+        # Capture Authorization header (if set by page)
+        authorization_token = await p.evaluate("localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || ''")
+        if authorization_token:
+            logging.info("[SEARCH] Found Authorization token: Bearer %s", authorization_token[:10] + "...")
 
-        # Step 2: Wait for XHR response
-        await p.wait_for_timeout(60000)  # Wait 60s for /api/devedores/
-        logger.info("[SEARCH] Checking captured_json for /api/devedores/ response")
+        for attempt in range(max_retries + 1):
+            # Clear previous captured JSON
+            self._captured_json = []
 
-        # Step 3: Find /api/devedores/ response with status 200
-        data = None
-        for item in self._captured_json:
-            if "/api/devedores/" in item["url"].lower() and item.get("status") == 200:
-                logger.info("[SEARCH] Found /api/devedores/ in captured_json: %s (status=%s)", item["url"], item["status"])
-                data = item["json"]
-                logger.debug("[SEARCH] Raw devedores JSON type: %s, keys=%s", type(data), list(data.keys()) if isinstance(data, dict) else [])
-                logger.debug("[SEARCH] Full response JSON: %s", data)
-                break
-        else:
-            logger.error("[SEARCH] No /api/devedores/ response with status 200 in captured_json")
+            # Step 1: Fill form and click CONSULTAR
+            await p.fill("input#nome, input[formcontrolname='nome']", name_query)
+            await self._bulletproof_click(
+                "button:has-text('Consultar'), button.btn.btn-warning",
+                "CONSULTAR",
+                allow_enter=True,
+            )
+
+            # Step 2: Wait for XHR response
+            await p.wait_for_timeout(60000)  # Wait 60s
+            logger.info("[SEARCH] Checking captured_json for /api/devedores/ response (attempt %s/%s)", attempt + 1, max_retries + 1)
+
+            # Step 3: Find /api/devedores/ response with status 200
+            data = None
             for item in self._captured_json:
-                if "/api/devedores/" in item["url"].lower():
-                    logger.warning("[SEARCH] Found /api/devedores/ with status %s: %s", item["status"], item["json"])
-            return []
+                if "/api/devedores/" in item["url"].lower() and item.get("status") == 200:
+                    logger.info("[SEARCH] Found /api/devedores/ in captured_json: %s (status=%s)", item["url"], item["status"])
+                    data = item["json"]
+                    logger.debug("[SEARCH] Raw devedores JSON type: %s, keys=%s", type(data), list(data.keys()) if isinstance(data, dict) else [])
+                    logger.debug("[SEARCH] Full response JSON: %s", data)
+                    break
+            else:
+                # Log all /api/devedores/ responses
+                for item in self._captured_json:
+                    if "/api/devedores/" in item["url"].lower():
+                        logger.warning("[SEARCH] Found /api/devedores/ with status %s: %s", item["status"], item["json"])
+                if attempt < max_retries:
+                    logger.info("[SEARCH] Retrying due to no status 200 response...")
+                    # Refresh page to reset session
+                    await p.goto(PGFN_BASE, wait_until="domcontentloaded")
+                    continue
+                logger.error("[SEARCH] No /api/devedores/ response with status 200 after %s attempts", max_retries + 1)
+                return []
 
         debtors: List[DebtorRow] = []
 
