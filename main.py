@@ -167,45 +167,37 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
         else:
             logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
 
+                # Get debtor rows directly from search_company
         debtors = await pgfn.search_company(query)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
 
-# pull latest captured devedores JSON
-        devedores_payloads = [
-            item for item in pgfn._captured_json
-            if "devedores" in item.get("url", "")
-        ]
-
-        if devedores_payloads:
-            latest = devedores_payloads[-1]
-            data = latest.get("json") or {}
-            inscriptions = await pgfn.collect_inscriptions_from_devedores(data)
-            logging.info(f"Collected {len(inscriptions)} inscriptions.")
-        else:
-            inscriptions = []
-            logging.warning("No devedores/ JSON payload available for inscriptions.")
-
-        save_as_csv_json(inscriptions, out_dir)
+        # Save and upsert into DB
+        save_as_csv_json(debtors, out_dir)
         upsert_inscriptions(db_engine, [
             Inscription(
-                cnpj=i.cnpj, company_name=i.company_name,
-                inscription_number=i.inscription_number,
-                category=i.category, amount=i.amount
-            ) for i in inscriptions
+                cnpj=d.cnpj,
+                company_name=d.company_name,
+                inscription_number=None,  # not in DebtorRow
+                category=None,            # not in DebtorRow
+                amount=d.total,
+            )
+            for d in debtors
         ])
 
         # --- Regularize flow ---
         reg = RegularizeClient(ctx, download_dir)
         await reg.open()
-        for insc in inscriptions:
+        for d in debtors:
             try:
+                # Regularize expects an inscription number, but DebtorRow doesn’t have it.
+                # If DARF emission requires one, you’ll need to extend DebtorRow later.
                 pdf_path = await reg.emitir_darf_integral(
-                    only_digits(insc.cnpj), insc.inscription_number
+                    only_digits(d.cnpj), None
                 )
                 logging.info(f"Saved DARF: {pdf_path}")
-                link_darf(db_engine, insc.cnpj, insc.inscription_number, pdf_path)
+                link_darf(db_engine, d.cnpj, None, pdf_path)
             except Exception as err:
-                logging.warning(f"DARF failed for {insc.cnpj}/{insc.inscription_number}: {err}")
+                logging.warning(f"DARF failed for {d.cnpj}: {err}")
 
     except Exception as main_err:
         logging.critical("[FATAL] Unhandled error in run(): %s", main_err, exc_info=True)
