@@ -6,7 +6,7 @@ REGULARIZE_BASE = "https://www.regularize.pgfn.gov.br"
 REGULARIZE_DOC = f"{REGULARIZE_BASE}/docArrecadacao"
 
 # Heuristics / URL fragments to watch in XHR
-PGFN_JSON_HINTS = ["/api/devedores", "/api", "/consulta", "/devedores"]
+PGFN_JSON_HINTS = ["/api/devedores", "api/devedores", "devedores/", "devedores"]
 
 # Output defaults
 DEFAULT_OUT_DIR = Path("./out")
