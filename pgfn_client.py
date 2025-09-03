@@ -49,32 +49,32 @@ class PGFNClient:
         self._passed_hcaptcha: bool = False  # set in main.py once token injected
 
     async def _bulletproof_click(self, selector: str, label: str, allow_enter: bool = False) -> bool:
-    """Try multiple strategies to click a button reliably."""
-    assert self.page is not None
-    p = self.page
-    try:
-        await p.click(selector)
-        logger.info("[CLICK] Clicked %s (normal)", label)
-        return True
-    except Exception as e1:
-        logger.warning("[CLICK] Normal click failed on %s: %s", label, e1)
+        """Try multiple strategies to click a button reliably."""
+        assert self.page is not None
+        p = self.page
         try:
-            await p.click(selector, force=True)
-            logger.info("[CLICK] Clicked %s (force)", label)
+            await p.click(selector)
+            logger.info("[CLICK] Clicked %s (normal)", label)
             return True
-        except Exception as e2:
-            logger.warning("[CLICK] Force click failed on %s: %s", label, e2)
+        except Exception as e1:
+            logger.warning("[CLICK] Normal click failed on %s: %s", label, e1)
             try:
-                await p.locator(selector).evaluate("btn => btn.click()")
-                logger.info("[CLICK] Triggered %s via JS dispatch", label)
+                await p.click(selector, force=True)
+                logger.info("[CLICK] Clicked %s (force)", label)
                 return True
-            except Exception as e3:
-                logger.error("[CLICK] JS dispatch failed on %s: %s", label, e3)
-                if allow_enter:
-                    await p.keyboard.press("Enter")
-                    logger.info("[CLICK] Pressed Enter as fallback for %s", label)
+            except Exception as e2:
+                logger.warning("[CLICK] Force click failed on %s: %s", label, e2)
+                try:
+                    await p.locator(selector).evaluate("btn => btn.click()")
+                    logger.info("[CLICK] Triggered %s via JS dispatch", label)
                     return True
-    return False
+                except Exception as e3:
+                    logger.error("[CLICK] JS dispatch failed on %s: %s", label, e3)
+                    if allow_enter:
+                        await p.keyboard.press("Enter")
+                        logger.info("[CLICK] Pressed Enter as fallback for %s", label)
+                        return True
+        return False
 
     async def open(self):
         """Open PGFN site and attach response listeners to capture JSON API calls."""
