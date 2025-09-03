@@ -1,5 +1,6 @@
 # pgfn_client.py
 from __future__ import annotations
+import httpx
 import json, logging
 from typing import List, Dict, Any, Optional, Union
 from dataclasses import dataclass
