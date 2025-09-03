@@ -142,16 +142,25 @@ class PGFNClient:
         api_url = "https://www.listadevedores.pgfn.gov.br/api/devedores/"
         payload = {
             "naturezas": "00000000000",
-            "nome": name_query
+            "nome": name_query 
         }
+        headers["Recaptcha"] = hcaptcha_response if hcaptcha_response else ""  # Add hCaptcha token
         try:
             async with httpx.AsyncClient(cookies=cookies, headers=headers, timeout=30.0) as client:
                 resp = await self._client.post(api_url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
-            logger.info("[SEARCH] Direct API response received from %s", api_url)
-        except Exception as e:
+                logger.info("[SEARCH] Direct API response received from %s", api_url)
+        except httpx.HTTPStatusError as e:
             logger.error("[SEARCH] API call to %s failed: %s", api_url, e)
+            try:
+                error_data = resp.json()
+                logger.debug("[SEARCH] Error response body: %s", error_data)
+            except:
+                logger.debug("[SEARCH] No JSON in error response")
+            return []
+        except Exception as e:
+            logger.error("[SEARCH] Unexpected error for API call to %s: %s", api_url, e)
             return []
 
         logger.debug("[SEARCH] Raw devedores JSON type: %s", type(data))
