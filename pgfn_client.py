@@ -22,8 +22,6 @@ class InscriptionRow:
     cnpj: str
     company_name: str
     amount: Optional[float] = None
-    section: Optional[str] = None
-    category: Optional[str] = None
 
 
 def _matches_json_hint(url: str) -> bool:
@@ -51,38 +49,32 @@ class PGFNClient:
         self._passed_hcaptcha: bool = False  # set in main.py once token injected
 
     async def _bulletproof_click(self, selector: str, label: str, allow_enter: bool = False) -> bool:
-        """Try multiple strategies to click a button."""
-        assert self.page is not None
-        p = self.page
+    """Try multiple strategies to click a button reliably."""
+    assert self.page is not None
+    p = self.page
+    try:
+        await p.click(selector)
+        logger.info("[CLICK] Clicked %s (normal)", label)
+        return True
+    except Exception as e1:
+        logger.warning("[CLICK] Normal click failed on %s: %s", label, e1)
         try:
-            await p.click(selector)
-            logger.info("[CLICK] Clicked %s (normal)", label)
+            await p.click(selector, force=True)
+            logger.info("[CLICK] Clicked %s (force)", label)
             return True
-        except Exception as e1:
-            logger.warning("[CLICK] Normal click failed on %s: %s", label, e1)
+        except Exception as e2:
+            logger.warning("[CLICK] Force click failed on %s: %s", label, e2)
             try:
-                await p.click(selector, force=True)
-                logger.info("[CLICK] Clicked %s (force)", label)
+                await p.locator(selector).evaluate("btn => btn.click()")
+                logger.info("[CLICK] Triggered %s via JS dispatch", label)
                 return True
-            except Exception as e2:
-                logger.warning("[CLICK] Force click failed on %s: %s", label, e2)
-                try:
-                    await p.evaluate(
-                        """(sel) => {
-                            const btn = document.querySelector(sel);
-                            if (btn) btn.click();
-                        }""",
-                        selector,
-                    )
-                    logger.info("[CLICK] Triggered %s via JS dispatch", label)
+            except Exception as e3:
+                logger.error("[CLICK] JS dispatch failed on %s: %s", label, e3)
+                if allow_enter:
+                    await p.keyboard.press("Enter")
+                    logger.info("[CLICK] Pressed Enter as fallback for %s", label)
                     return True
-                except Exception as e3:
-                    logger.error("[CLICK] JS dispatch failed on %s: %s", label, e3)
-                    if allow_enter:
-                        await p.keyboard.press("Enter")
-                        logger.info("[CLICK] Pressed Enter as fallback for %s", label)
-                        return True
-        return False
+    return False
 
     async def open(self):
         """Open PGFN site and attach response listeners to capture JSON API calls."""
@@ -120,21 +112,21 @@ class PGFNClient:
         # Fill search field
         try:
             await p.wait_for_selector(
-                "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']", 
+                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']", 
                 timeout=5000
             )
         except Exception:
             logger.warning("[SEARCH] Could not find name input field!")
         else:
             await p.fill(
-                "input[placeholder*='Nome'], input[formcontrolname='Nome'], input[type='text']",
+                "input[placeholder*='Nome'], input[formcontrolname='nome'], input[type='text']",
                 name_query,
             )
             logger.info("[SEARCH] Filled search with: %s", name_query)
 
         # Click "CONSULTAR"
         await self._bulletproof_click(
-            "button:has-text('CONSULTAR'), text=CONSULTAR, button[type='submit']",
+            "button:has-text('Consultar'), button.btn.btn-warning",
             "CONSULTAR",
             allow_enter=True,
         )
