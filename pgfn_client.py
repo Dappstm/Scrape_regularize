@@ -83,7 +83,7 @@ class PGFNClient:
 
         async def on_response(resp):
             try:
-                logger.debug("[XHR] %s %s", resp.request.method, resp.url) # 👈 log every response
+                logger.info("[XHR] %s %s", resp.request.method, resp.url) # 👈 log every response
                 
                 url = resp.url
                 ctype = resp.headers.get("content-type", "")
@@ -134,13 +134,13 @@ class PGFNClient:
         )
 
         # Wait a bit for the XHR to fire
-        # await p.wait_for_timeout(5000)
+        await p.wait_for_timeout(180000)
         
         # Wait for CONSULTAR results to load
         try:
             await p.wait_for_response(
                 lambda r: "devedores" in r.url.lower(),
-                timeout=180000,
+                timeout=5000,
             )
             logger.info("[SEARCH] devedores/ response captured after CONSULTAR")
         except Exception:
