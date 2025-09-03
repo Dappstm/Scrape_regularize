@@ -21,19 +21,41 @@ async def _launch_playwright() -> BrowserContext:
     logging.info("[CTX] Launching Playwright Chromium...")
     pw = await async_playwright().start()
     browser = await pw.chromium.launch(
-        headless=True,
+        headless=False,
         args=[
             "--disable-blink-features=AutomationControlled",
             "--no-sandbox",
             "--disable-dev-shm-usage",
             "--disable-infobars",
             "--disable-gpu",
+            "--window-size=1366,768",
         ],
     )
     context = await browser.new_context(
         viewport={"width": 1366, "height": 768},
         locale="pt-BR",
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        extra_http_headers={
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+            "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+            "Sec-Ch-Ua": '"Chromium";v="136", "Google Chrome";v="136", "Not.A/Brand";v="99"',
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": '"Windows"',
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Referer": "https://www.listadevedores.pgfn.gov.br/",
+        },
+        java_script_enabled=True,
+        bypass_csp=True,
     )
+    # Patch browser fingerprinting
+    await context.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        window.chrome = { runtime: {} };
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-GB', 'en-US', 'en'] });
+    """)
     logging.info("[CTX] Chromium launched.")
     context._pw = pw  # type: ignore[attr-defined]
     context._browser = browser  # type: ignore[attr-defined]
@@ -87,9 +109,11 @@ async def _detect_hcaptcha_sitekey(page: Page, validate: bool = False) -> Option
         return None
 
 
-async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int = 2) -> tuple[bool, Optional[str]]:
+import random
+
+async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int = 2) -> tuple[bool, Optional[str], Optional[str]]:
     """
-    Solve hCaptcha with 2Captcha, inject into Playwright page, and add human-like behavior.
+    Solve hCaptcha with 2Captcha, inject into Playwright page, and capture Authorization token.
     
     Args:
         page: Playwright Page object.
@@ -97,21 +121,22 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
         retries: Number of retry attempts.
     
     Returns:
-        tuple[bool, Optional[str]]: (Success status, hCaptcha token or None).
+        tuple[bool, Optional[str], Optional[str]]: (Success status, hCaptcha token, Authorization token).
     """
     content = (await page.content()).lower()
     if "hcaptcha" not in content and "captcha" not in content:
         logging.info("[HCAPTCHA] No captcha detected on %s — skipping solver.", page.url)
-        return True, None
+        return True, None, None
 
     sitekey = await _detect_hcaptcha_sitekey(page)
     if not sitekey:
         logging.warning("[HCAPTCHA] Could not detect hCaptcha sitekey at %s", page.url)
-        return False, None
+        return False, None, None
 
     solver = TwoCaptcha(api_key)
     attempt = 0
     token = None
+    auth_token = None
 
     while attempt <= retries:
         attempt += 1
@@ -127,12 +152,22 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                 logging.error("[HCAPTCHA] 2Captcha returned no token (attempt %s).", attempt)
                 continue
 
-            # Add human-like delay and mouse movement
-            await page.wait_for_timeout(5000)  # Wait 5s
-            await page.mouse.move(500, 500, steps=10)  # Simulate mouse movement
-            await p.mouse.click(200, 200)
-            await page.wait_for_timeout(1000)
-            formatted_token = token  # Match browser's Recaptcha header
+            # Human-like behavior
+            await page.wait_for_timeout(random.randint(5000, 10000))  # Random 5-10s delay
+            # Move to hCaptcha widget (approximate coordinates)
+            captcha = await page.query_selector("iframe[src*='hcaptcha.com']")
+            if captcha:
+                box = await captcha.bounding_box()
+                if box:
+                    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] / 2
+                    await page.mouse.move(x, y, steps=15)
+                    await page.mouse.click(x, y)
+            else:
+                # Fallback to generic movement
+                await page.mouse.move(random.randint(200, 600), random.randint(200, 400), steps=15)
+            await page.wait_for_timeout(random.randint(1000, 3000))
+
+            formatted_token = token
             logging.info("[HCAPTCHA] Got token: %s, formatted: %s", token, formatted_token)
 
             # Inject token
@@ -155,15 +190,22 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                 }""",
                 formatted_token,
             )
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(random.randint(1500, 2500))
 
-            # Verify injection and log cookies
+            # Capture Authorization token
+            auth_token = await page.evaluate(
+                "localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token') || ''"
+            )
+            if auth_token:
+                logging.info("[HCAPTCHA] Found Authorization token: Bearer %s", auth_token[:10] + "...")
+            
+            # Verify injection and cookies
             injected_token = await page.evaluate("document.querySelector('textarea[name=\"h-captcha-response\"]')?.value")
             cookies = await page.context.cookies()
             logging.debug("[HCAPTCHA] Cookies: %s", {c["name"]: c["value"] for c in cookies})
             if injected_token:
                 logging.info("[HCAPTCHA] Token injected successfully: %s", injected_token)
-                return True, injected_token
+                return True, injected_token, auth_token
             else:
                 logging.error("[HCAPTCHA] Token injection failed (attempt %s).", attempt)
                 continue
@@ -172,7 +214,7 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
             logging.error("[HCAPTCHA] 2Captcha attempt %s failed: %s", attempt, e, exc_info=True)
 
     logging.critical("[HCAPTCHA] All %s attempts failed. Cannot bypass captcha.", retries + 1)
-    return False, None
+    return False, None, None
 
 
 async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[str]):
@@ -186,23 +228,18 @@ async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[s
         pgfn = PGFNClient(ctx)
         await pgfn.open()  # creates pgfn.page at PGFN_BASE
 
-
+        auth_token = None
         if api_key:
-            solved = await _solve_hcaptcha_with_2captcha(pgfn.page, api_key, retries=2)
+            solved, auth_token = await _solve_hcaptcha_with_2captcha(pgfn.page, api_key, retries=2)
             if solved:
                 logging.info("✅ hCaptcha solved for PGFN session")
             else:
                 logging.warning("⚠️ Failed to solve hCaptcha, continuing anyway (may fail).")
         else:
             logging.info("[HCAPTCHA] No 2Captcha key provided, skipping solver.")
-            
-            await page.wait_for_timeout(5000)  # Wait 5s
-            await page.mouse.move(500, 500, steps=10)  # Simulate mouse movement
-            await p.mouse.click(200, 200)
-            await page.wait_for_timeout(1000)
 
                 # Get debtor rows directly from search_company
-        debtors = await pgfn.search_company(query, max_retries=2)
+        debtors = await pgfn.search_company(query, auth_token=auth_token, max_retries=2)
         logging.info(f"Found {len(debtors)} debtor rows for '{query}'.")
 
         # Save and upsert into DB
