@@ -139,7 +139,7 @@ class PGFNClient:
         # Wait for CONSULTAR results to load
         try:
             await p.wait_for_response(
-                lambda r: "devedores/" in r.url and r.request.method == "POST",
+                lambda r: "devedores" in r.url.lower(),
                 timeout=180000,
             )
             logger.info("[SEARCH] devedores/ response captured after CONSULTAR")
