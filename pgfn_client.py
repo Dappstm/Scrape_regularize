@@ -145,6 +145,10 @@ class PGFNClient:
             self._captured_json = []
 
             # Step 1: Fill form and click CONSULTAR
+            await page.wait_for_timeout(5000)  # Wait 5s
+            await page.mouse.move(500, 500, steps=10)  # Simulate mouse movement
+            await p.mouse.click(200, 200)
+            await page.wait_for_timeout(1000)
             await p.fill("input#nome, input[formcontrolname='nome']", name_query)
             await self._bulletproof_click(
                 "button:has-text('Consultar'), button.btn.btn-warning",
