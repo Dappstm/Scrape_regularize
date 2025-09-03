@@ -87,21 +87,32 @@ async def _detect_hcaptcha_sitekey(page: Page, validate: bool = False) -> Option
         return None
 
 
-async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int = 2) -> bool:
-    """Solve hCaptcha with 2Captcha and inject into Playwright page. Retries on failure."""
+async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int = 2) -> tuple[bool, Optional[str]]:
+    """
+    Solve hCaptcha with 2Captcha and inject into Playwright page with a delay to avoid bot detection.
+    
+    Args:
+        page: Playwright Page object.
+        api_key: 2Captcha API key.
+        retries: Number of retry attempts.
+    
+    Returns:
+        tuple[bool, Optional[str]]: (Success status, hCaptcha token or None).
+    """
     content = (await page.content()).lower()
     if "hcaptcha" not in content and "captcha" not in content:
         logging.info("[HCAPTCHA] No captcha detected on %s — skipping solver.", page.url)
-        return True
+        return True, None
 
     sitekey = await _detect_hcaptcha_sitekey(page)
     if not sitekey:
         logging.warning("[HCAPTCHA] Could not detect hCaptcha sitekey at %s", page.url)
-        return False
+        return False, None
 
     solver = TwoCaptcha(api_key)
-
     attempt = 0
+    token = None
+
     while attempt <= retries:
         attempt += 1
         logging.info("[HCAPTCHA] Solving with 2Captcha (attempt %s/%s)...", attempt, retries + 1)
@@ -116,7 +127,14 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                 logging.error("[HCAPTCHA] 2Captcha returned no token (attempt %s).", attempt)
                 continue
 
-            logging.info("[HCAPTCHA] Got token, injecting into page...")
+            # Add delay to mimic human behavior
+            await page.wait_for_timeout(5000)  # Wait 5s before injecting
+            logging.info("[HCAPTCHA] Got token: %s", token)
+
+            # Try both raw and P1_ prefixed token
+            formatted_token = token  # Start with raw token
+            logging.info("[HCAPTCHA] Injecting token: %s", formatted_token)
+
             await page.evaluate(
                 """(token) => {
                     function setTextarea(name, value) {
@@ -128,23 +146,30 @@ async def _solve_hcaptcha_with_2captcha(page: Page, api_key: str, retries: int =
                             document.body.appendChild(el);
                         }
                         el.value = value;
-                        el.dispatchEvent(new Event('change', {bubbles:true}));
-                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                        el.dispatchEvent(new Event('change', {bubbles: true}));
+                        el.dispatchEvent(new Event('input', {bubbles: true}));
                     }
                     setTextarea('h-captcha-response', token);
                     setTextarea('g-recaptcha-response', token);
                 }""",
-                token,
+                formatted_token,
             )
             await page.wait_for_timeout(1500)
-            logging.info("[HCAPTCHA] Token injected successfully.")
-            return True
+
+            # Verify injection
+            injected_token = await page.evaluate("document.querySelector('textarea[name=\"h-captcha-response\"]')?.value")
+            if injected_token:
+                logging.info("[HCAPTCHA] Token injected successfully: %s", injected_token)
+                return True, injected_token
+            else:
+                logging.error("[HCAPTCHA] Token injection failed (attempt %s).", attempt)
+                continue
 
         except Exception as e:
             logging.error("[HCAPTCHA] 2Captcha attempt %s failed: %s", attempt, e, exc_info=True)
 
     logging.critical("[HCAPTCHA] All %s attempts failed. Cannot bypass captcha.", retries + 1)
-    return False
+    return False, None
 
 
 async def run(query, out_dir, db_path, download_dir, two_captcha_key: Optional[str]):
