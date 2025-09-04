@@ -76,7 +76,7 @@ class PGFNClient:
         )
 
         # Wait for the "total-mensagens" element that shows result count
-        await p.wait_for_selector("p.total-mensagens.info-panel", timeout=60000)
+        await p.wait_for_selector("p.total-mensagens.info-panel", state="attached", timeout=60000)
         rows = await p.query_selector_all("table tbody tr")
         logger.info("[SEARCH] Found %d result rows", len(rows))
 
