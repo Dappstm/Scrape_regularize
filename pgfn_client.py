@@ -75,8 +75,8 @@ class PGFNClient:
             "CONSULTAR",
         )
 
-        # Wait for results table (just for navigation, not data)
-        await p.wait_for_selector("table tbody tr")
+        # Wait for the "total-mensagens" element that shows result count
+        await p.wait_for_selector("p.total-mensagens.info-panel", timeout=60000)
         rows = await p.query_selector_all("table tbody tr")
         logger.info("[SEARCH] Found %d result rows", len(rows))
 
@@ -85,7 +85,7 @@ class PGFNClient:
         for idx, row in enumerate(rows, 1):
             try:
                 # Locate Detalhar button
-                detail_btn = await row.query_selector("i.ion-ios-open")
+                detail_btn = await row.query_selector("i.ion.ion-ios-open")
                 if not detail_btn:
                     logger.warning("[DETAIL] No Detalhar button for row %s", idx)
                     continue
@@ -106,13 +106,13 @@ class PGFNClient:
 
                 # Click detail button
                 await detail_btn.click()
-                await p.wait_for_timeout(2000)  # allow modal + XHR
+                await p.wait_for_timeout(30000)  # allow modal + XHR
 
                 # Wait until JSON captured or timeout
                 for _ in range(30):
                     if self._last_detail_json:
                         break
-                    await p.wait_for_timeout(500)
+                    await p.wait_for_timeout(5000)
 
                 if not self._last_detail_json:
                     logger.error("[ROW] No JSON captured for row %s", idx)
