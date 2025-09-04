@@ -59,6 +59,9 @@ class PGFNClient:
         logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
+        
+        cookies = await self.context.cookies()
+        logger.info("[PGFN] Got %d cookies for session", len(cookies))
 
     async def search_company(self, name_query: str) -> List[DebtorRow]:
         """Perform search, parse results table, and expand each row to collect inscriptions."""
@@ -105,6 +108,8 @@ class PGFNClient:
 
                 async def handle_response(resp):
                     if "/api/devedores?id=" in resp.url:
+                        logger.info("[XHR] %s %s", resp.status, resp.url)
+                        
                         try:
                             data = await resp.json()
                             self._last_detail_json = data
