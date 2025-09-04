@@ -69,8 +69,8 @@ class PGFNClient:
         p = self.page
         
         token = await p.evaluate("""() => {
-            return window.localStorage.getItem("token") ||
-            window.sessionStorage.getItem("token");
+            return window.localStorage.getItem("Authorization") ||
+            window.sessionStorage.getItem("Authorization");
         }""")
         if token:
             logger.info("[AUTH] Found token in storage: %s", token[:50] + "...")
