@@ -72,6 +72,34 @@ class PGFNClient:
         await p.wait_for_timeout(random.randint(1000, 2000))
         await p.fill("input#nome, input[formcontrolname='nome']", name_query)
         await p.wait_for_timeout(random.randint(1000, 2000))
+        
+        # --- Global request/response debugging ---
+
+        async def handle_request(req):
+            # Log all API calls (narrow it down if too noisy)
+            if "api/devedores" in req.url:
+                logger.info("[REQ] %s %s", req.method, req.url)
+                logger.info("[REQ] headers=%s", req.headers)
+                try:
+                    logger.info("[REQ] post_data=%s", req.post_data)
+                except Exception:
+                    pass
+
+        async def handle_response(resp):
+            if "api/devedores" in resp.url:
+                logger.info("[RESP] %s %s", resp.status, resp.url)
+                logger.info("[RESP] headers=%s", resp.headers)
+                try:
+                    data = await resp.json()
+                    logger.info("[RESP] JSON keys: %s", list(data.keys()))
+                except Exception:
+                    # sometimes not JSON
+                    text = await resp.text()
+                    logger.info("[RESP] text sample: %s", text[:200])
+                    pass
+
+        p.on("request", handle_request)
+        p.on("response", handle_response)
 
         async with p.expect_response(lambda r: "/api/devedores" in r.url) as resp_info:
             await self._bulletproof_click(
