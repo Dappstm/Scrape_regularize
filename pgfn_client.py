@@ -70,13 +70,23 @@ class PGFNClient:
         await p.fill("input#nome, input[formcontrolname='nome']", name_query)
         await p.wait_for_timeout(random.randint(1000, 2000))
 
-        await self._bulletproof_click(
-            "button:has-text('Consultar'), button.btn.btn-warning",
-            "CONSULTAR",
-        )
+        async with p.expect_response(lambda r: "/api/devedores" in r.url) as resp_info:
+            await self._bulletproof_click(
+                "button:has-text('Consultar'), button.btn.btn-warning",
+                "CONSULTAR",
+            )
 
-        # Wait for the "total-mensagens" element that shows result count
+        resp = await resp_info.value
+        logger.info("[SEARCH] API responded %s for %s", resp.status, resp.url)
+
+        if not resp.ok:
+            logger.error("[SEARCH] API request failed with %s", resp.status)
+            return []
+
+        # Now wait for the "total-mensagens" element that shows result count
         await p.wait_for_selector("p.total-mensagens.info-panel", state="attached", timeout=60000)
+
+        # Parse table rows
         rows = await p.query_selector_all("table tbody tr")
         logger.info("[SEARCH] Found %d result rows", len(rows))
 
