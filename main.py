@@ -11,7 +11,7 @@ from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions,
 
 # Bright Data Scraping Browser over CDP
 BRIGHTDATA_AUTH = "brd-customer-hl_77272cb6-zone-pgfn:t6oeei7qixhv"
-)
+
 SBR_WS_CDP = f"wss://{BRIGHTDATA_AUTH}@brd.superproxy.io:9222"
 
 def only_digits(s: str) -> str:
