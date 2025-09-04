@@ -10,9 +10,7 @@ from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
 
 # Bright Data Scraping Browser over CDP
-BRIGHTDATA_AUTH = os.getenv(
-    "BRIGHTDATA_AUTH",
-    "brd-customer-hl_d19d4367-zone-scraping_browser1:2f278pzcatsp"
+BRIGHTDATA_AUTH = "brd-customer-hl_77272cb6-zone-pgfn:t6oeei7qixhv"
 )
 SBR_WS_CDP = f"wss://{BRIGHTDATA_AUTH}@brd.superproxy.io:9222"
 
@@ -60,10 +58,7 @@ async def run(query: str, out_dir: Path, db_path: Path, download_dir: Path):
                 all_inscriptions.append(
                     Inscription(
                         cnpj=d.cnpj,
-                        company_name=None,  # no longer available
                         inscription_number=ins,
-                        category=None,
-                        amount=None,
                     )
                 )
         upsert_inscriptions(db_engine, all_inscriptions)
