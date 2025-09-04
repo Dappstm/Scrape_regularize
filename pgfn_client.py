@@ -105,6 +105,14 @@ class PGFNClient:
 
                 # Reset and listen for detail XHR
                 self._last_detail_json = None
+                
+                # Log outgoing request headers for debugging
+                async def handle_request(req):
+                    if "/api/devedores?id=" in req.url:
+                        logger.info("[REQ] %s %s", req.method, req.url)
+                        logger.info("[REQ] headers=%s", req.headers)
+
+                p.on("request", handle_request)
 
                 async def handle_response(resp):
                     if "/api/devedores?id=" in resp.url:
