@@ -12,8 +12,6 @@ logger = logging.getLogger("PGFNClient")
 @dataclass
 class DebtorRow:
     cnpj: str
-    company_name: str
-    total: Optional[float] = None
     inscriptions: Optional[List[str]] = None  # new field
 
 
@@ -139,8 +137,6 @@ class PGFNClient:
 
                 debtors.append(DebtorRow(
                     cnpj=cnpj,
-                    company_name=None,   # not required anymore
-                    total=None,          # not required anymore
                     inscriptions=inscriptions,
                 ))
                 logger.info("[ROW] %s | inscriptions: %s", cnpj, inscriptions)
