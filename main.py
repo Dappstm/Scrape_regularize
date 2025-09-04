@@ -10,8 +10,10 @@ from regularize_client import RegularizeClient
 from storage import Inscription, save_as_csv_json, init_db, upsert_inscriptions, link_darf
 
 # Bright Data Scraping Browser over CDP
-# Set env var: BRIGHTDATA_AUTH="brd-customer-<id>-zone-<zone>:<password>"
-BRIGHTDATA_AUTH = os.getenv("BRIGHTDATA_AUTH", "brd-customer-hl_d19d4367-zone-scraping_browser1:2f278pzcatsp")
+BRIGHTDATA_AUTH = os.getenv(
+    "BRIGHTDATA_AUTH",
+    "brd-customer-hl_d19d4367-zone-scraping_browser1:2f278pzcatsp"
+)
 SBR_WS_CDP = f"wss://{BRIGHTDATA_AUTH}@brd.superproxy.io:9222"
 
 def only_digits(s: str) -> str:
@@ -25,7 +27,6 @@ async def _connect_brightdata() -> tuple[BrowserContext, object, object]:
     logging.info("[CTX] Connecting to Bright Data browser endpoint...")
     pw = await async_playwright().start()
     browser = await pw.chromium.connect_over_cdp(SBR_WS_CDP)
-    # Use an existing context if available, else create new
     context = browser.contexts[0] if browser.contexts else await browser.new_context()
     logging.info("[CTX] Bright Data browser connected (hCaptcha bypass handled upstream).")
     return context, browser, pw
@@ -43,38 +44,43 @@ async def run(query: str, out_dir: Path, db_path: Path, download_dir: Path):
 
         # --- PGFN flow ---
         pgfn = PGFNClient(ctx)
-        await pgfn.open()  # creates pgfn.page and attaches response listeners
+        await pgfn.open()
 
-        # Get debtor rows directly from search_company
+        # Perform search and get all CNPJs + inscriptions
         debtors = await pgfn.search_company(query)
         logging.info("Found %d debtor rows for '%s'.", len(debtors), query)
 
-        # Save and upsert into DB
+        # Save to CSV/JSON
         save_as_csv_json(debtors, out_dir)
-        upsert_inscriptions(db_engine, [
-            Inscription(
-                cnpj=d.cnpj,
-                company_name=d.company_name,
-                inscription_number=None,  # not in DebtorRow
-                category=None,            # not in DebtorRow
-                amount=d.total,
-            )
-            for d in debtors
-        ])
+
+        # Insert into DB
+        all_inscriptions = []
+        for d in debtors:
+            for ins in (d.inscriptions or []):
+                all_inscriptions.append(
+                    Inscription(
+                        cnpj=d.cnpj,
+                        company_name=None,  # no longer available
+                        inscription_number=ins,
+                        category=None,
+                        amount=None,
+                    )
+                )
+        upsert_inscriptions(db_engine, all_inscriptions)
 
         # --- Regularize flow ---
         reg = RegularizeClient(ctx, download_dir)
         await reg.open()
         for d in debtors:
-            try:
-                # Regularize expects an inscription number, but DebtorRow doesn’t have it.
-                pdf_path = await reg.emitir_darf_integral(
-                    only_digits(d.cnpj), None
-                )
-                logging.info(f"Saved DARF: {pdf_path}")
-                link_darf(db_engine, d.cnpj, None, pdf_path)
-            except Exception as err:
-                logging.warning(f"DARF failed for {d.cnpj}: {err}")
+            for ins in (d.inscriptions or []):
+                try:
+                    pdf_path = await reg.emitir_darf_integral(
+                        only_digits(d.cnpj), ins
+                    )
+                    logging.info(f"Saved DARF: {pdf_path}")
+                    link_darf(db_engine, d.cnpj, ins, pdf_path)
+                except Exception as err:
+                    logging.warning(f"DARF failed for {d.cnpj} - {ins}: {err}")
 
     except Exception as main_err:
         logging.critical("[FATAL] Unhandled error in run(): %s", main_err, exc_info=True)
