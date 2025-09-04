@@ -67,6 +67,15 @@ class PGFNClient:
         """Perform search, parse results table, and expand each row to collect inscriptions."""
         assert self.page is not None
         p = self.page
+        
+        token = await p.evaluate("""() => {
+            return window.localStorage.getItem("token") ||
+            window.sessionStorage.getItem("token");
+        }""")
+        if token:
+            logger.info("[AUTH] Found token in storage: %s", token[:50] + "...")
+        else:
+            logger.warning("[AUTH] No token in local/sessionStorage")
 
         # Fill search form
         await p.wait_for_timeout(random.randint(1000, 2000))
