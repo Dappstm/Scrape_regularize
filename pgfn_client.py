@@ -137,11 +137,11 @@ class PGFNClient:
             logger.info("[SEARCH] attempt %s/%s for query=%s", attempt, max_attempts, name_query)
 
             try:
-                p.unroute("**/api/devedores*")
+                await p.unroute("**/api/devedores*")
             except Exception:
                 pass
             try:
-                p.off("response", getattr(self, "_response_listener"))
+                await p.off("response", getattr(self, "_response_listener"))
             except Exception:
                 pass
 
