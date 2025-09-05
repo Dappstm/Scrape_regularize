@@ -160,7 +160,7 @@ class PGFNClient:
                             try:
                                 data = await resp.json()
                                 self._last_detail_json = data
-                                logger.info("[XHR] captured detail JSON for %s", resp.status, resp.url)
+                                logger.info("[XHR] captured detail JSON for %s %s", resp.status, resp.url)
                             except Exception as e:
                                 logger.debug("[XHR] detail json parsing failed: %s", e)
                 except Exception as e:
@@ -172,7 +172,7 @@ class PGFNClient:
             async def _route_handler(route: Route):
                 try:
                     req = route.request
-                    headers = dict(req.headers)
+                    headers = req.headers.copy()
                     if self._auth_token:
                         headers["authorization"] = self._auth_token
                     logger.debug("[REQ] %s %s headers=%s", req.method, req.url, headers)
