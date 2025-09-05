@@ -258,7 +258,7 @@ class PGFNClient:
 
                         # --- Human-like pre-scroll before interacting ---
                         await self._human_scroll_and_view(p)
-                        await asyncio.sleep(random.uniform(0.12, 0.6))
+                        await asyncio.sleep(random.uniform(0.4, 1.7))
 
                         # Get button position
                         box = await detail_btn.bounding_box()
@@ -274,11 +274,11 @@ class PGFNClient:
                                 target[1] + random.uniform(-5, 10),
                             )
                             await self._human_mouse_move(p, (cur["x"], cur["y"]), overshoot, steps=random.randint(12, 20))
-                            await asyncio.sleep(random.uniform(0.15, 0.4))
+                            await asyncio.sleep(random.uniform(0.5, 2.4))
                             await self._human_mouse_move(p, overshoot, target, steps=random.randint(5, 10))
 
                             # Hover pause as if "reading tooltip"
-                            await asyncio.sleep(random.uniform(0.25, 0.9))
+                            await asyncio.sleep(random.uniform(0.7, 3.2))
 
                         # Final click
                         await detail_btn.click()
