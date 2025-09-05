@@ -175,6 +175,7 @@ class PGFNClient:
                     headers = dict(req.headers)
                     if self._auth_token:
                         headers["authorization"] = self._auth_token
+                    logger.debug("[REQ] %s %s headers=%s", req.method, req.url, headers)
                     await route.continue_(headers=headers)
                 except Exception as e:
                     logger.debug("[ROUTE] continue_ failed: %s", e)
