@@ -153,14 +153,18 @@ class PGFNClient:
                         if "authorization" in hdrs:
                             self._auth_token = hdrs["authorization"]
                             logger.info("[AUTH] token updated from response header (authorization)")
-                        elif "total-control" in hdrs:
-                            self._auth_token = hdrs["total-control"]
-                            logger.info("[AUTH] token updated from response header (total-control)")
+                        # elif "total-control" in hdrs:
+                            # self._auth_token = hdrs["total-control"]
+                            # logger.info("[AUTH] token updated from response header (total-control)")
                         if "/api/devedores?id=" in url:
+                            hdrs = {k.lower(): v for k, v in resp.headers.items()}
+                            if "authorization" in hdrs:
+                                self._auth_token = hdrs["authorization"]
+                                logger.info("[AUTH] token updated from response header (authorization)")
                             try:
                                 data = await resp.json()
                                 self._last_detail_json = data
-                                logger.info("[XHR] captured detail JSON for %s", resp.url)
+                                logger.info("[XHR] captured detail JSON for %s", resp.status, resp.url)
                             except Exception as e:
                                 logger.debug("[XHR] detail json parsing failed: %s", e)
                 except Exception as e:
