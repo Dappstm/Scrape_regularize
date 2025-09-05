@@ -4,8 +4,6 @@ import argparse, re, logging, asyncio, os, sys
 from pathlib import Path
 from typing import Optional
 from playwright.async_api import async_playwright, BrowserContext
-from playwright_extra.async_api import PlaywrightExtra
-from playwright_extra_stealth import stealth_async
 from config import DEFAULT_OUT_DIR, DEFAULT_DB_PATH, DEFAULT_DOWNLOAD_DIR
 from pgfn_client import PGFNClient
 from regularize_client import RegularizeClient
@@ -25,8 +23,7 @@ async def _connect_brightdata() -> tuple[BrowserContext, object, object]:
     Returns (context, browser, playwright) so we can cleanly close everything.
     """
     logging.info("[CTX] Connecting to Bright Data browser endpoint...")
-    pwx = PlaywrightExtra()
-    pw = await pwx.start()  # pw is PlaywrightExtra instance
+    pw = await async_playwright().start()
     browser = await pw.chromium.connect_over_cdp(SBR_WS_CDP)
     context = browser.contexts[0] if browser.contexts else await browser.new_context()
     logging.info("[CTX] Bright Data browser connected (hCaptcha bypass handled upstream).")
