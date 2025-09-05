@@ -36,20 +36,28 @@ class PGFNClient:
         self._auth_token: Optional[str] = None  # cache token
 
     # --- Human-like helpers ---
-    async def _human_mouse_move(self, p: Page, start: tuple, end: tuple, steps: int = 30) -> None:
-        """Move mouse along a slightly randomized quadratic Bezier curve."""
-        x1, y1 = start
-        x2, y2 = end
-        cx = (x1 + x2) / 2 + random.uniform(-80, 80)
-        cy = (y1 + y2) / 2 + random.uniform(-80, 80)
-        for i in range(steps + 1):
-            t = i / steps
-            xt = (1 - t) ** 2 * x1 + 2 * (1 - t) * t * cx + t ** 2 * x2
-            yt = (1 - t) ** 2 * y1 + 2 * (1 - t) * t * cy + t ** 2 * y2
-            jitter_x = random.uniform(-1.2, 1.2)
-            jitter_y = random.uniform(-1.2, 1.2)
-            await p.mouse.move(xt + jitter_x, yt + jitter_y, steps=1)
-            await asyncio.sleep(random.uniform(0.008, 0.04))
+    async def _human_mouse_curve(self, page, start, end, steps=30, jitter=3):
+        """
+        Move mouse along a curved Bézier path with jitter.
+        start, end = (x, y) tuples
+        """
+        # Random control points for cubic Bézier
+        cx1 = start[0] + (end[0] - start[0]) * random.uniform(0.2, 0.5) + random.randint(-40, 40)
+        cy1 = start[1] + (end[1] - start[1]) * random.uniform(0.2, 0.5) + random.randint(-40, 40)
+        cx2 = start[0] + (end[0] - start[0]) * random.uniform(0.5, 0.8) + random.randint(-40, 40)
+        cy2 = start[1] + (end[1] - start[1]) * random.uniform(0.5, 0.8) + random.randint(-40, 40)
+
+        for t in [i / steps for i in range(steps + 1)]:
+            # Cubic Bézier interpolation
+            x = (1-t)**3 * start[0] + 3*(1-t)**2 * t * cx1 + 3*(1-t) * t**2 * cx2 + t**3 * end[0]
+            y = (1-t)**3 * start[1] + 3*(1-t)**2 * t * cy1 + 3*(1-t) * t**2 * cy2 + t**3 * end[1]
+
+            # Add jitter (tiny natural micro-movements)
+            x += random.uniform(-jitter, jitter)
+            y += random.uniform(-jitter, jitter)
+
+            await page.mouse.move(x, y)
+            await asyncio.sleep(random.uniform(0.005, 0.02))  # natural reaction delay
 
     async def _human_type(self, p: Page, selector: str, text: str) -> None:
         """Type text with natural variable delays, occasional backspaces and small hesitations."""
@@ -184,9 +192,17 @@ class PGFNClient:
             await p.route("**/api/devedores*", _route_handler)
 
             await self._human_scroll_and_view(p)
-            await asyncio.sleep(random.uniform(0.12, 0.6))
+
+            await asyncio.sleep(random.uniform(0.5, 1.5))  # pause as if reading
+
+            viewport = await p.viewport_size()
+            if viewport:
+                await p.mouse.move(viewport["width"] + random.randint(20, 80),
+                                   random.randint(50, viewport["height"] - 50))
+                await asyncio.sleep(random.uniform(0.3, 1.0))
+
             await self._human_type(p, "input#nome, input[formcontrolname='nome']", name_query)
-            await asyncio.sleep(random.uniform(0.25, 0.9))
+            await asyncio.sleep(random.uniform(0.6, 1.8))  # hesitation
 
             btn = await p.query_selector("button:has-text('Consultar'), button.btn.btn-warning")
             if not btn:
@@ -195,12 +211,23 @@ class PGFNClient:
 
             box = await btn.bounding_box()
             if box:
-                start = (random.uniform(10, 100), random.uniform(100, 300))
+                # Random exploratory hovers around the button
+                for _ in range(random.randint(1, 2)):
+                    hover_x = box["x"] + random.uniform(0, box["width"])
+                    hover_y = box["y"] + random.uniform(0, box["height"])
+                    await p.mouse.move(hover_x, hover_y, steps=random.randint(8, 14))
+                    await asyncio.sleep(random.uniform(0.2, 0.6))
+
+                # Curved, jittery movement to center
+                start = (random.uniform(10, 200), random.uniform(100, 400))
                 end = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-                await self._human_mouse_move(p, start, end, steps=random.randint(18, 34))
+                await self._human_mouse_curve(p, start, end, steps=random.randint(24, 42))
+
+                await asyncio.sleep(random.uniform(0.25, 0.8))  # hover pause before click
 
             try:
-                async with p.expect_response(lambda r: "/api/devedores" in r.url.lower(), timeout=30000) as resp_ctx:
+                async with p.expect_response(lambda r: "/api/devedores" in r.url.lower(),
+                                             timeout=30000) as resp_ctx:
                     await btn.click()
                 resp = await resp_ctx.value
             except Exception as e:
@@ -258,27 +285,44 @@ class PGFNClient:
 
                         # --- Human-like pre-scroll before interacting ---
                         await self._human_scroll_and_view(p)
-                        await asyncio.sleep(random.uniform(0.4, 1.7))
+                        await asyncio.sleep(random.uniform(0.4, 1.6))  # pause as if reading row details
 
-                        # Get button position
+                        # Move mouse off-row and back (like repositioning to focus)
+                        viewport = await p.viewport_size()
+                        if viewport:
+                            await p.mouse.move(viewport["width"] + random.randint(10, 60),
+                                               random.randint(40, viewport["height"] - 40))
+                            await asyncio.sleep(random.uniform(0.25, 0.9))
+
+                        # Get button box
                         box = await detail_btn.bounding_box()
                         if box:
-                            # Start from a "neutral" current position
-                            cur = await p.evaluate("() => ({x: window.scrollX + (window.innerWidth/2), y: window.scrollY + (window.innerHeight/2)})")
-
+                            # Start from current "neutral" center position
+                            cur = await p.evaluate(
+                                "() => ({x: window.scrollX + (window.innerWidth/2), y: window.scrollY + (window.innerHeight/2)})"
+                            )
                             target = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
 
-                            # Slight overshoot first, then correction
-                            overshoot = (
-                                target[0] + random.uniform(-5, 10),
-                                target[1] + random.uniform(-5, 10),
-                            )
-                            await self._human_mouse_move(p, (cur["x"], cur["y"]), overshoot, steps=random.randint(12, 20))
-                            await asyncio.sleep(random.uniform(0.5, 2.4))
-                            await self._human_mouse_move(p, overshoot, target, steps=random.randint(5, 10))
+                            # Random exploratory hovers around the button edges (human hesitation)
+                            for _ in range(random.randint(1, 3)):
+                                hover_x = box["x"] + random.uniform(0, box["width"])
+                                hover_y = box["y"] + random.uniform(0, box["height"])
+                                await p.mouse.move(hover_x, hover_y, steps=random.randint(6, 12))
+                                await asyncio.sleep(random.uniform(0.2, 0.7))
 
-                            # Hover pause as if "reading tooltip"
-                            await asyncio.sleep(random.uniform(0.7, 3.2))
+                            # Overshoot path then correction
+                            overshoot = (
+                                target[0] + random.uniform(-6, 12),
+                                target[1] + random.uniform(-6, 12),
+                            )
+                            await self._human_mouse_curve(p, (cur["x"], cur["y"]), overshoot,
+                                                          steps=random.randint(14, 28))
+                            await asyncio.sleep(random.uniform(0.5, 2.0))
+                            await self._human_mouse_curve(p, overshoot, target,
+                                                          steps=random.randint(6, 12))
+
+                            # Pause like “reading tooltip” before committing
+                            await asyncio.sleep(random.uniform(0.6, 2.4))
 
                         # Final click
                         await detail_btn.click()
