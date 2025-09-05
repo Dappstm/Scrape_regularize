@@ -200,7 +200,7 @@ class PGFNClient:
                 await self._human_mouse_move(p, start, end, steps=random.randint(18, 34))
 
             try:
-                async with p.expect_response(lambda r: "/api/devedores/" in r.url.lower(), timeout=30000) as resp_ctx:
+                async with p.expect_response(lambda r: "/api/devedores" in r.url.lower(), timeout=30000) as resp_ctx:
                     await btn.click()
                 resp = await resp_ctx.value
             except Exception as e:
