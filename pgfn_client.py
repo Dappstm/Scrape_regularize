@@ -196,7 +196,7 @@ class PGFNClient:
 
             await asyncio.sleep(random.uniform(0.5, 1.5))  # pause as if reading
 
-            viewport = p.viewport_size()
+            viewport = p.viewport_size
             if viewport:
                 await p.mouse.move(viewport["width"] + random.randint(20, 80),
                                    random.randint(50, viewport["height"] - 50))
@@ -289,7 +289,7 @@ class PGFNClient:
                         await asyncio.sleep(random.uniform(0.4, 1.6))  # pause as if reading row details
 
                         # Move mouse off-row and back (like repositioning to focus)
-                        viewport = p.viewport_size()
+                        viewport = p.viewport_size
                         if viewport:
                             await p.mouse.move(viewport["width"] + random.randint(10, 60),
                                                random.randint(40, viewport["height"] - 40))
