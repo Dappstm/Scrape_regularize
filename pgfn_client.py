@@ -119,8 +119,9 @@ class PGFNClient:
         logger.info("[PGFN] Opening base page: %s", PGFN_BASE)
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
-        cookies = await self.context.cookies()
-        logger.info("[PGFN] Got %d cookies for session", len(cookies))
+        
+        # cookies = await self.context.cookies()
+        # logger.info("[PGFN] Got %d cookies for session", len(cookies))
 
     async def search_company(self, name_query: str, max_attempts: int = 3) -> List[DebtorRow]:
         """
@@ -195,7 +196,7 @@ class PGFNClient:
 
             await asyncio.sleep(random.uniform(0.5, 1.5))  # pause as if reading
 
-            viewport = await p.viewport_size()
+            viewport = p.viewport_size()
             if viewport:
                 await p.mouse.move(viewport["width"] + random.randint(20, 80),
                                    random.randint(50, viewport["height"] - 50))
@@ -288,7 +289,7 @@ class PGFNClient:
                         await asyncio.sleep(random.uniform(0.4, 1.6))  # pause as if reading row details
 
                         # Move mouse off-row and back (like repositioning to focus)
-                        viewport = await p.viewport_size()
+                        viewport = p.viewport_size()
                         if viewport:
                             await p.mouse.move(viewport["width"] + random.randint(10, 60),
                                                random.randint(40, viewport["height"] - 40))
