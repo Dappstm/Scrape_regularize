@@ -4,7 +4,7 @@ import logging, random, math, asyncio
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from playwright.async_api import BrowserContext, Page, Route
-from playwright_stealth import stealth_async
+from playwright_extra_stealth import stealth_async
 from config import PGFN_BASE, WAIT_LONG
 
 logger = logging.getLogger("PGFNClient")
