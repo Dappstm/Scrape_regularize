@@ -253,17 +253,40 @@ class PGFNClient:
                         detail_btn = await row.query_selector("i.ion-ios-open, button[title*='Detalhar']")
                         if not detail_btn:
                             continue
+
                         self._last_detail_json = None
+
+                        # --- Human-like pre-scroll before interacting ---
+                        await self._human_scroll_and_view(p)
+                        await asyncio.sleep(random.uniform(0.12, 0.6))
+
+                        # Get button position
                         box = await detail_btn.bounding_box()
                         if box:
+                            # Start from a "neutral" current position
                             cur = await p.evaluate("() => ({x: window.scrollX + (window.innerWidth/2), y: window.scrollY + (window.innerHeight/2)})")
-                            await self._human_mouse_move(
-                                p,
-                                (cur["x"], cur["y"]),
-                                (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2),
-                                steps=random.randint(14, 28),
+
+                            target = (box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+                            # Slight overshoot first, then correction
+                            overshoot = (
+                                target[0] + random.uniform(-5, 10),
+                                target[1] + random.uniform(-5, 10),
                             )
+                            await self._human_mouse_move(p, (cur["x"], cur["y"]), overshoot, steps=random.randint(12, 20))
+                            await asyncio.sleep(random.uniform(0.15, 0.4))
+                            await self._human_mouse_move(p, overshoot, target, steps=random.randint(5, 10))
+
+                            # Hover pause as if "reading tooltip"
+                            await asyncio.sleep(random.uniform(0.25, 0.9))
+
+                        # Final click
                         await detail_btn.click()
+
+                        # Post-click behaviors: simulate viewing modal
+                        await asyncio.sleep(random.uniform(0.5, 1.5))
+                        await self._human_scroll_and_view(p)
+                        await asyncio.sleep(random.uniform(0.3, 0.8))
                         for _ in range(40):
                             if self._last_detail_json:
                                 break
