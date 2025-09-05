@@ -150,17 +150,13 @@ class PGFNClient:
                     url = resp.url.lower()
                     if "api/devedores" in url:
                         hdrs = {k.lower(): v for k, v in resp.headers.items()}
-                        if "authorization" in hdrs:
-                            self._auth_token = hdrs["authorization"]
+                        if "Authorization" in hdrs:
+                            self._auth_token = hdrs["Authorization"]
                             logger.info("[AUTH] token updated from response header (authorization)")
                         # elif "total-control" in hdrs:
                             # self._auth_token = hdrs["total-control"]
                             # logger.info("[AUTH] token updated from response header (total-control)")
                         if "/api/devedores?id=" in url:
-                            hdrs = {k.lower(): v for k, v in resp.headers.items()}
-                            if "authorization" in hdrs:
-                                self._auth_token = hdrs["authorization"]
-                                logger.info("[AUTH] token updated from response header (authorization)")
                             try:
                                 data = await resp.json()
                                 self._last_detail_json = data
