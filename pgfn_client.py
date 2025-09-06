@@ -159,13 +159,34 @@ class PGFNClient:
                     url = resp.url.lower()
                     if "api/devedores" in url:
                         hdrs = {k.lower(): v for k, v in resp.headers.items()}
-                        if "Authorization" in hdrs:
-                            self._auth_token = hdrs["Authorization"]
+                        if "authorization" in hdrs:
+                            self._auth_token = hdrs["authorization"]
                             logger.info("[AUTH] token updated from response header (authorization)")
                         # elif "total-control" in hdrs:
                             # self._auth_token = hdrs["total-control"]
                             # logger.info("[AUTH] token updated from response header (total-control)")
                         if "/api/devedores?id=" in url:
+                            # Get the Playwright Request object that triggered this response
+                            req = resp.request
+
+                            # Make simple dict copies (headers may be a case-insensitive mapping)
+                            req_headers = {k: v for k, v in req.headers.items()}
+                            resp_headers = {k: v for k, v in resp.headers.items()}
+
+                            # Mask Authorization for safety in logs
+                            def _mask_token(hdrs, key="authorization"):
+                                val = hdrs.get(key) or hdrs.get(key.capitalize())
+                                if not val:
+                                    return None
+                                try:
+                                    return val[:20] + "..."  # keep prefix
+                                except Exception:
+                                    return "<masked>"
+
+                            logger.debug("[REQ] %s %s headers=%s", req.method, req.url, req_headers)
+                            logger.debug("[REQ] Authorization (masked)=%s", _mask_token(req_headers))
+                            logger.debug("[RESP] %s %s headers=%s", resp.status, resp.url, resp_headers)
+                            logger.debug("[RESP] Authorization (masked)=%s", _mask_token(resp_headers))
                             try:
                                 data = await resp.json()
                                 self._last_detail_json = data
@@ -184,7 +205,6 @@ class PGFNClient:
                     headers = req.headers.copy()
                     if self._auth_token:
                         headers["authorization"] = self._auth_token
-                    logger.debug("[REQ] %s %s headers=%s", req.method, req.url, headers)
                     await route.continue_(headers=headers)
                 except Exception as e:
                     logger.debug("[ROUTE] continue_ failed: %s", e)
