@@ -166,33 +166,14 @@ class PGFNClient:
                             # self._auth_token = hdrs["total-control"]
                             # logger.info("[AUTH] token updated from response header (total-control)")
                         if "/api/devedores?id=" in url:
-                            # Get the Playwright Request object that triggered this response
-                            req = resp.request
-
+                            
                             # Make simple dict copies (headers may be a case-insensitive mapping)
                             req_headers = {k: v for k, v in req.headers.items()}
                             resp_headers = {k: v for k, v in resp.headers.items()}
 
-                            # Mask Authorization for safety in logs
-                            def _mask_token(hdrs, key="authorization"):
-                                val = hdrs.get(key) or hdrs.get(key.capitalize())
-                                if not val:
-                                    return None
-                                try:
-                                    return val[:20] + "..."  # keep prefix
-                                except Exception:
-                                    return "<masked>"
-
                             logger.debug("[REQ] %s %s headers=%s", req.method, req.url, req_headers)
-                            logger.debug("[REQ] Authorization (masked)=%s", _mask_token(req_headers))
                             logger.debug("[RESP] %s %s headers=%s", resp.status, resp.url, resp_headers)
-                            logger.debug("[RESP] Authorization (masked)=%s", _mask_token(resp_headers))
-                            try:
-                                data = await resp.json()
-                                self._last_detail_json = data
-                                logger.info("[XHR] captured detail JSON for %s %s", resp.status, resp.url)
-                            except Exception as e:
-                                logger.debug("[XHR] detail json parsing failed: %s", e)
+        
                 except Exception as e:
                     logger.debug("[XHR] response listener error: %s", e)
 
@@ -345,8 +326,15 @@ class PGFNClient:
                             # Pause like “reading tooltip” before committing
                             await asyncio.sleep(random.uniform(0.6, 2.4))
 
-                        # Final click
-                        await detail_btn.click()
+                        try:
+                            async with p.expect_response(lambda r: "/api/devedores?id=" in r.url.lower(), timeout=30000) as resp_ctx:
+                                await detail_btn.click()
+                            resp = await resp_ctx.value
+                            data = await resp.json()
+                            self._last_detail_json = data
+                            logger.info("[DETAIL] API responded %s for %s", resp.status, resp.url)
+                        except Exception as e:
+                            logger.warning("[DETAIL] timeout waiting for /api/devedores?id=: %s", e)
 
                         # Post-click behaviors: simulate viewing modal
                         await asyncio.sleep(random.uniform(0.5, 1.5))
