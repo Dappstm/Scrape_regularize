@@ -43,6 +43,8 @@ async def run(query: str, out_dir: Path, db_path: Path, download_dir: Path):
         # --- PGFN flow ---
         pgfn = PGFNClient(ctx)
         await pgfn.open()
+        
+        await pgfn.check_hcaptcha(pgfn.page)
 
         # Perform search and get all CNPJs + inscriptions
         debtors = await pgfn.search_company(query)
