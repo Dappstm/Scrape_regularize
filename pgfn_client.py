@@ -120,7 +120,7 @@ class PGFNClient:
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
         
-    async def check_hcaptcha(page) -> bool:
+    async def check_hcaptcha(self) -> bool:
         try:
             # Wait for up to 5 seconds for the hCaptcha iframe to appear
             has_captcha = await self.page.wait_for_selector(
