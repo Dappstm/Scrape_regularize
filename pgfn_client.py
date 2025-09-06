@@ -120,11 +120,24 @@ class PGFNClient:
         await self.page.goto(PGFN_BASE, wait_until="domcontentloaded")
         logger.info("[PGFN] Base page loaded.")
         
-        has_captcha = await page.query_selector("iframe[src*='hcaptcha.com']")
-        if not has_captcha:
-            return False  # nothing to do
-
-        logger.warning("[PGFN] hCaptcha still detected.")
+    async def check_hcaptcha(page) -> bool:
+        try:
+            # Wait for up to 5 seconds for the hCaptcha iframe to appear
+            has_captcha = await self.page.wait_for_selector(
+                "iframe[src*='hcaptcha.com/captcha']",
+                state="attached",
+                timeout=5000
+            )
+        
+            if not has_captcha:
+                logger.info("[PGFN] No hCaptcha detected.")
+                return False
+        
+            logger.warning("[PGFN] hCaptcha still detected.")
+    
+        except Exception as e:
+            logger.error(f"[PGFN] Error checking for hCaptcha: {str(e)}")
+            return False
         
         # cookies = await self.context.cookies()
         # logger.info("[PGFN] Got %d cookies for session", len(cookies))
